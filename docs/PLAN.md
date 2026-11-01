@@ -173,7 +173,7 @@ storage_contract (
   number        text UNIQUE,            -- номер договора, как сейчас (зашит в QR бирок)
   client_id     uuid FK client,
   vehicle_id    uuid FK vehicle,
-  store_id      int FK location,        -- магазин приёма (XX)
+  store_id      int FK location,        -- магазин приёма
   accepted_at   timestamptz,
   paid_until    date,                   -- оплачено до
   tariff_code   text,                   -- код услуги в 1С
