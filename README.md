@@ -1,58 +1,72 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Платформа хранения колёс «Диски Мира»
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Учёт сезонного хранения шин и колёс: приём в магазине, договор с уникальным номером, бирки с QR,
+перемещения магазин ⇄ склад, адресное хранение `XX_YY_ZZ` (склад_ряд_ячейка), выдача, инвентаризация,
+гараж клиента и обмен с 1С:УТ 10.3 через REST API.
 
-## About Laravel
+Документы: [план](docs/PLAN.md) · [техдокументация](docs/TECHNICAL.md) · [API для 1С](docs/API.md) · [изменения](CHANGELOG.md)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Стек
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Laravel 13 · PHP 8.4 (работает и на 8.3) · MariaDB 10.11 · Inertia + Vue 3 · Tailwind 4 · Vite.
+Интерфейс — PWA (работает с телефона кладовщика, офлайн-очередь сканирований).
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Установка для разработки
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env && php artisan key:generate
+# создать БД sklad и пользователя, прописать DB_* в .env
+php artisan migrate --seed        # схема + демо-данные
+npm ci && npm run build           # или npm run dev
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Тесты используют отдельную базу `sklad_test` (см. `phpunit.xml`): `php artisan test`.
+Стиль кода: `vendor/bin/pint`.
 
-## Contributing
+### Демо-доступы (после `--seed`, пароль у всех `password`)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+| Логин | Роль | Локация |
+|---|---|---|
+| admin | Администратор | — |
+| manager | Руководитель магазина | М01 |
+| seller | Продавец | М01 |
+| seller5 | Продавец | М05 |
+| keeper | Кладовщик | склад 02 |
+| driver | Водитель | — |
 
-## Code of Conduct
+На боевом сервере `--seed` не запускать.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Команды
 
-## Security Vulnerabilities
+| Команда | Назначение |
+|---|---|
+| `php artisan user:create ivanov "Иванов И." --role=seller --location=М01` | создать сотрудника (роли: seller, storekeeper, driver, store_manager, admin) |
+| `php artisan onec:key "1С УТ" --ips=10.0.0.5` | выпустить ключ API для 1С (показывается один раз) |
+| `php artisan storage:import file.csv [--dry-run]` | перенос текущих хранений из Excel/CSV, образец — `deploy/import-example.csv` |
+| `php artisan storage:mark-overdue` | пометить просроченные договоры (по расписанию в 02:00) |
+| `php artisan onec:check-outbox` | предупредить, если 1С не забирает события (каждые 10 мин) |
+| `php artisan onec:prune-inbox` | чистка журнала идемпотентности (ежедневно) |
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Ячейки склада генерируются в интерфейсе: «Склады и ячейки» → склад → «Сгенерировать ряды».
 
-## License
+## Выкладка на сервер (Debian 12 + ispmanager 6)
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+1. Создать сайт и БД в ispmanager, PHP 8.4, корень — `/var/www/sklad/data/app/current/public`
+   (фрагмент nginx — `deploy/nginx-sklad.conf`).
+2. Положить `.env` в `/var/www/sklad/data/app/shared/.env` (`APP_ENV=production`, `APP_DEBUG=false`, DB_*, `APP_URL`).
+3. Запустить `./deploy.sh main` под пользователем сайта. Откат — `./deploy.sh --rollback`.
+   Если задан `FPM_SERVICE=php8.4-fpm`, пул PHP-FPM перезагрузится автоматически.
+4. Cron — `deploy/crontab.txt`, воркер очереди — `deploy/supervisor-sklad-worker.conf`.
+5. Создать администратора (`user:create`) и ключ для 1С (`onec:key`).
+
+Проверка живости: `GET /health`. Документация API (Scramble) — `/docs/api`, доступна администратору.
+
+## Отличия от техдокументации
+
+- Тесты на PHPUnit (Pest не подключали — меньше зависимостей, тот же Laravel-тестинг).
+- Роли — собственная матрица `App\Domain\Users\Role` вместо spatie/permission (5 ролей, без редактирования прав в интерфейсе).
+- Вход — собственный контроллер (логин + пароль, блокировка после 5 попыток) вместо Fortify.
+- Кэш, сессии и очередь — в БД; Redis не нужен на старте.
+- PHPStan в CI пока не включён.
