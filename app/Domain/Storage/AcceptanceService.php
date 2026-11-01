@@ -93,6 +93,10 @@ final class AcceptanceService
             }
             // Правка при приёме обновляет гараж (последнее известное состояние)
             $garage->fill($attrs + ['title' => $d['title'] ?? $garage->title]);
+        } elseif ($existing = $this->matchingGarageSet($vehicle, $attrs)) {
+            // Тот же комплект уже есть в гараже машины (не выбран продавцом) — не плодим дубли
+            $garage = $existing;
+            $garage->fill($attrs);
         } else {
             $garage = new GarageSet($attrs + [
                 'vehicle_id' => $vehicle->id,
@@ -114,6 +118,17 @@ final class AcceptanceService
         $this->mover->log($set, 'accept', null, SetStatus::Accepted, null, ['qty' => $set->qty]);
 
         return $set;
+    }
+
+    private function matchingGarageSet(Vehicle $vehicle, array $attrs): ?GarageSet
+    {
+        return GarageSet::where('vehicle_id', $vehicle->id)
+            ->where('tire_size', $attrs['tire_size'])
+            ->where('with_rims', $attrs['with_rims'])
+            ->where('state', '!=', GarageSetState::Retired->value)
+            ->whereDoesntHave('wheelSets', fn ($q) => $q->whereIn('status', SetStatus::activeValues()))
+            ->lockForUpdate()
+            ->first();
     }
 
     /** @return array<string, mixed> */

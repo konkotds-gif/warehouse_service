@@ -1,0 +1,15 @@
+{
+    "name": "Диски Мира — хранение колёс",
+    "short_name": "Хранение",
+    "description": "Приём, размещение, перемещения и выдача колёс на хранении",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#0A1230",
+    "theme_color": "#0A1230",
+    "lang": "ru",
+    "icons": [
+        { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    ]
+}

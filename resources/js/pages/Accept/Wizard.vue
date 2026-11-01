@@ -1,0 +1,263 @@
+<script setup>
+import { computed, reactive, ref, watch } from 'vue';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
+import Icon from '../../Components/Icon.vue';
+import PageHeader from '../../Components/PageHeader.vue';
+import { getJson } from '../../lib/http';
+import { phone as fmtPhone, money } from '../../lib/format';
+
+const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Array, client: Object, garage: Array, preselect: Object });
+const seasons = usePage().props.dict.seasons;
+const MAKES = ['Kia', 'Hyundai', 'Lada', 'Toyota', 'Volkswagen', 'Skoda', 'Renault', 'Nissan', 'Chery', 'Haval', 'Geely', 'Mitsubishi', 'Mazda', 'Ford', 'BMW', 'Mercedes-Benz', 'Audi', 'Chevrolet', 'Honda', 'Lexus', 'Subaru', 'Volvo', 'UAZ', 'Exeed', 'Omoda', 'Changan', 'Tank', 'Jetour'];
+
+const steps = ['Клиент', 'Авто / гараж', 'Комплект', 'Проверка'];
+const step = ref(props.client ? (props.preselect?.vehicle_id ? 2 : 1) : 0);
+
+// --- Шаг 1: клиент
+const q = ref('');
+const found = ref([]);
+const searching = ref(false);
+let timer;
+watch(q, (v) => {
+    clearTimeout(timer);
+    if (v.trim().length < 2) return (found.value = []);
+    timer = setTimeout(async () => {
+        searching.value = true;
+        try { found.value = await getJson('/w/clients?q=' + encodeURIComponent(v.trim())); } finally { searching.value = false; }
+    }, 300);
+});
+const newClient = reactive({ full_name: '', phone: '', consent_sms: true, consent_pd: true });
+const isNewClient = ref(false);
+function pickClient(c) {
+    router.get('/accept', { client: c.id }, { preserveState: false });
+}
+
+// --- Шаг 2: авто и гараж
+const vehicleId = ref(props.preselect?.vehicle_id || (props.garage.length === 1 ? props.garage[0].id : null));
+const newVehicle = reactive({ plate: '', make: '', model: '' });
+const isNewVehicle = ref(!props.client || !props.garage.length);
+const selectedVehicle = computed(() => props.garage.find((v) => v.id === vehicleId.value));
+
+// --- Шаг 3: комплекты
+const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand_model: '', notes: '', condition_needs_confirm: false });
+const form = useForm({
+    store_id: props.defaultStoreId || props.stores[0]?.id || null,
+    tariff_id: (props.tariffs.find((t) => t.period === 'season') || props.tariffs[0])?.id || null,
+    months: (props.tariffs.find((t) => t.period === 'season') || props.tariffs[0])?.months || 6,
+    notes: '',
+    sets: [blank()],
+});
+function useGarageSet(g) {
+    if (g.active_set) return;
+    vehicleId.value = g.vehicle_id;
+    isNewVehicle.value = false;
+    form.sets = [{ ...blank(), ...g.prefill }];
+    step.value = 2;
+}
+if (props.preselect?.garage_set_id) {
+    const g = props.garage.flatMap((v) => v.garage_sets).find((x) => x.id === props.preselect.garage_set_id);
+    if (g && !g.active_set) form.sets = [{ ...blank(), ...g.prefill }];
+}
+watch(() => form.tariff_id, (id) => {
+    const t = props.tariffs.find((x) => x.id === id);
+    if (t) form.months = t.months;
+});
+
+const sizeRe = /^(\d{3})\s*\/\s*(\d{2})\s*(Z?R)\s*(\d{2}(\.5)?C?)(\s*\d{2,3}(\/\d{2,3})?\s*[A-Za-z])?$|^\d{2}\s*[xXхХ]\s*\d{1,2}(\.\d{1,2})?\s*R\s*\d{2}(\s*\d{2,3}\s*[A-Za-z])?$/i;
+function setErrors(s) {
+    const e = [];
+    if (!sizeRe.test(s.tire_size.trim())) e.push('размер шин (например 205/55 R16 94H)');
+    if (s.with_rims === null) e.push('с дисками / без');
+    if (!s.condition) e.push('БУ / НОВЫЕ');
+    return e;
+}
+
+const canNext = computed(() => {
+    if (step.value === 0) return props.client || (isNewClient.value && newClient.full_name.trim() && newClient.phone.replace(/\D/g, '').length >= 10);
+    if (step.value === 1) return isNewVehicle.value ? newVehicle.plate.trim() && newVehicle.make.trim() && newVehicle.model.trim() : !!vehicleId.value;
+    if (step.value === 2) return form.store_id && form.sets.every((s) => setErrors(s).length === 0);
+    return true;
+});
+const totalWheels = computed(() => form.sets.reduce((a, s) => a + Number(s.qty || 0), 0));
+const tariff = computed(() => props.tariffs.find((t) => t.id === form.tariff_id));
+
+function submit() {
+    form.transform((data) => ({
+        ...data,
+        client_id: props.client?.id || null,
+        client: props.client ? null : { ...newClient },
+        vehicle_id: isNewVehicle.value ? null : vehicleId.value,
+        vehicle: isNewVehicle.value ? { ...newVehicle } : null,
+    })).post('/accept');
+}
+const allErrors = computed(() => Object.values(form.errors));
+</script>
+
+<template>
+    <Head title="Приём на хранение" />
+    <PageHeader eyebrow="Приём на хранение" title="Новый договор хранения" subtitle="Номер договора присваивается автоматически и печатается в QR на бирках" />
+
+    <!-- Шаги -->
+    <div class="mb-6 grid grid-cols-4 gap-2">
+        <button v-for="(s, i) in steps" :key="s" type="button" class="text-left" :disabled="i > step" @click="step = i">
+            <div class="h-1.5 rounded-full" :class="i <= step ? 'bg-blue-600' : 'bg-line'"></div>
+            <div class="mt-2 text-xs sm:text-sm font-semibold" :class="i === step ? 'text-ink-900' : 'text-ink-500'">{{ i + 1 }}. {{ s }}</div>
+        </button>
+    </div>
+
+    <div v-if="allErrors.length" class="card border-red-600 p-4 mb-4 text-red-600 text-sm">
+        <div v-for="(e, i) in allErrors" :key="i">{{ e }}</div>
+    </div>
+
+    <!-- 1. Клиент -->
+    <section v-if="step === 0" class="card p-5 sm:p-6">
+        <div v-if="client" class="flex flex-wrap items-center gap-4">
+            <span class="icon-tile"><Icon name="users" /></span>
+            <div class="flex-1">
+                <div class="text-lg font-bold">{{ client.full_name }}</div>
+                <div class="text-ink-500 tabular">{{ fmtPhone(client.phone) }}</div>
+            </div>
+            <button class="btn-secondary" @click="router.get('/accept', {}, { preserveState: false })">Другой клиент</button>
+        </div>
+        <template v-else>
+            <div class="seg mb-4">
+                <button :class="{ on: !isNewClient }" @click="isNewClient = false">Найти клиента</button>
+                <button :class="{ on: isNewClient }" @click="isNewClient = true">Новый клиент</button>
+            </div>
+            <div v-if="!isNewClient">
+                <input v-model="q" class="input input-lg" placeholder="Телефон, госномер или ФИО" autofocus />
+                <div class="mt-3 text-sm text-ink-500" v-if="searching">Ищем…</div>
+                <ul class="mt-3 divide-y divide-line">
+                    <li v-for="c in found" :key="c.id">
+                        <button class="w-full py-3 flex items-center gap-3 text-left hover:bg-bg rounded-[12px] px-2" @click="pickClient(c)">
+                            <div class="flex-1">
+                                <div class="font-semibold">{{ c.full_name }}</div>
+                                <div class="text-sm text-ink-500 tabular">{{ fmtPhone(c.phone) }}</div>
+                            </div>
+                            <div class="flex flex-wrap gap-1 justify-end">
+                                <span v-for="v in c.vehicles" :key="v.id" class="chip bg-blue-50 text-blue-600">{{ v.plate }}</span>
+                            </div>
+                            <Icon name="arrow" :size="18" />
+                        </button>
+                    </li>
+                </ul>
+                <p v-if="q.length >= 2 && !found.length && !searching" class="mt-3 text-sm text-ink-500">Не нашли — <button class="text-blue-600 font-semibold" @click="isNewClient = true; newClient.full_name = /\d/.test(q) ? '' : q; newClient.phone = /\d/.test(q) ? q : ''">создать нового клиента</button></p>
+            </div>
+            <div v-else class="grid gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2"><label class="label">ФИО клиента *</label><input v-model="newClient.full_name" class="input" /></div>
+                <div><label class="label">Телефон *</label><input v-model="newClient.phone" class="input tabular" inputmode="tel" placeholder="+7 (___) ___-__-__" /></div>
+                <div class="flex flex-col justify-end gap-2 text-sm">
+                    <label class="flex items-center gap-2"><input type="checkbox" v-model="newClient.consent_sms" class="h-4 w-4 accent-blue-600" /> Согласие на SMS</label>
+                    <label class="flex items-center gap-2"><input type="checkbox" v-model="newClient.consent_pd" class="h-4 w-4 accent-blue-600" /> Согласие на обработку ПДн (152-ФЗ)</label>
+                </div>
+            </div>
+        </template>
+    </section>
+
+    <!-- 2. Авто и гараж -->
+    <section v-if="step === 1" class="card p-5 sm:p-6">
+        <div v-if="garage.length" class="seg mb-4">
+            <button :class="{ on: !isNewVehicle }" @click="isNewVehicle = false">Гараж клиента</button>
+            <button :class="{ on: isNewVehicle }" @click="isNewVehicle = true">Новый автомобиль</button>
+        </div>
+        <div v-if="!isNewVehicle" class="grid gap-4 lg:grid-cols-2">
+            <div v-for="v in garage" :key="v.id" class="rounded-[16px] border p-4 transition cursor-pointer"
+                :class="vehicleId === v.id ? 'border-blue-600 ring-4 ring-blue-600/10' : 'border-line hover:border-blue-600'" @click="vehicleId = v.id">
+                <div class="flex items-center gap-3">
+                    <span class="icon-tile !h-10 !w-10"><Icon name="car" /></span>
+                    <div><div class="font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ v.plate }}</div></div>
+                </div>
+                <div class="mt-3 grid gap-2">
+                    <button v-for="g in v.garage_sets" :key="g.id" type="button" :disabled="!!g.active_set"
+                        class="text-left rounded-[12px] border border-line px-3 py-2 hover:border-blue-600 disabled:opacity-60 disabled:hover:border-line"
+                        @click.stop="useGarageSet(g)">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="font-semibold">{{ g.title }}</span>
+                            <span class="badge" :class="g.active_set ? 'badge-green' : 'badge-ink'">{{ g.active_set ? 'На хранении ' + g.active_set.qr_code : g.state_label }}</span>
+                        </div>
+                        <div class="text-sm text-ink-500">{{ g.qty }} шт · {{ g.tire_size }} · {{ g.with_rims ? 'с дисками' : 'без дисков' }} · {{ g.condition_label }}</div>
+                        <div v-if="!g.active_set" class="text-xs text-blue-600 font-semibold mt-1">Принять этот комплект — данные подставятся →</div>
+                    </button>
+                    <div v-if="!v.garage_sets.length" class="text-sm text-ink-500">Комплектов в гараже нет — заполните на следующем шаге</div>
+                </div>
+            </div>
+        </div>
+        <div v-else class="grid gap-4 sm:grid-cols-3">
+            <div><label class="label">Госномер *</label><input v-model="newVehicle.plate" class="input tabular uppercase" placeholder="А123ВС86" /></div>
+            <div><label class="label">Марка *</label><input v-model="newVehicle.make" class="input" list="makes" /><datalist id="makes"><option v-for="m in MAKES" :key="m" :value="m" /></datalist></div>
+            <div><label class="label">Модель *</label><input v-model="newVehicle.model" class="input" /></div>
+        </div>
+    </section>
+
+    <!-- 3. Комплект -->
+    <section v-if="step === 2" class="grid gap-4">
+        <div class="card p-5 sm:p-6 grid gap-4 sm:grid-cols-3">
+            <div><label class="label">Магазин приёма</label>
+                <select v-model="form.store_id" class="input"><option v-for="s in stores" :key="s.id" :value="s.id">{{ s.label }}</option></select></div>
+            <div><label class="label">Тариф</label>
+                <select v-model="form.tariff_id" class="input"><option :value="null">Без тарифа</option><option v-for="t in tariffs" :key="t.id" :value="t.id">{{ t.name }} — {{ money(t.price) }}</option></select></div>
+            <div><label class="label">Срок, мес.</label><input v-model.number="form.months" type="number" min="1" max="24" class="input" /></div>
+        </div>
+
+        <div v-for="(s, i) in form.sets" :key="i" class="card p-5 sm:p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg">Комплект {{ form.sets.length > 1 ? i + 1 : '' }} <span v-if="s.garage_set_id" class="badge badge-blue ml-2">из гаража</span></h3>
+                <button v-if="form.sets.length > 1" class="btn-ghost !min-h-9" @click="form.sets.splice(i, 1)"><Icon name="x" :size="16" /> Убрать</button>
+            </div>
+            <label class="label">Количество колёс * <span class="text-ink-500 font-normal">(бирок будет столько же)</span></label>
+            <div class="grid grid-cols-8 gap-2 max-w-md">
+                <button v-for="n in 8" :key="n" type="button" class="h-12 rounded-[12px] border font-bold tabular"
+                    :class="s.qty === n ? 'bg-blue-600 text-white border-blue-600' : 'border-line hover:border-blue-600'" @click="s.qty = n">{{ n }}</button>
+            </div>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="label">Полный размер шин *</label>
+                    <input v-model="s.tire_size" class="input tabular uppercase" placeholder="205/55 R16 94H" list="sizes" />
+                    <datalist id="sizes"><option v-for="x in ['175/70 R13','185/65 R15','195/65 R15 91H','205/55 R16 91H','205/55 R16 94H','215/60 R16','215/65 R16','225/45 R17','225/60 R17','235/55 R18','235/65 R17','265/65 R17']" :key="x" :value="x" /></datalist>
+                    <div v-if="s.tire_size && !sizeRe.test(s.tire_size.trim())" class="error">Формат: 205/55 R16 94H</div>
+                </div>
+                <div><label class="label">Сезон</label>
+                    <select v-model="s.season" class="input"><option :value="null">—</option><option v-for="x in seasons" :key="x.value" :value="x.value">{{ x.label }}</option></select></div>
+                <div>
+                    <label class="label">Диски *</label>
+                    <div class="seg w-full grid grid-cols-2"><button type="button" :class="{ on: s.with_rims === true }" @click="s.with_rims = true">С дисками</button><button type="button" :class="{ on: s.with_rims === false }" @click="s.with_rims = false">Без дисков</button></div>
+                </div>
+                <div>
+                    <label class="label">Состояние *</label>
+                    <div class="seg w-full grid grid-cols-2" :class="s.condition_needs_confirm ? 'ring-4 ring-amber-500/40 border-amber-500' : ''">
+                        <button type="button" :class="{ on: s.condition === 'used' }" @click="s.condition = 'used'; s.condition_needs_confirm = false">БУ</button>
+                        <button type="button" :class="{ on: s.condition === 'new' }" @click="s.condition = 'new'; s.condition_needs_confirm = false">НОВЫЕ</button>
+                    </div>
+                    <div v-if="s.condition_needs_confirm" class="mt-1 text-sm text-amber-700">В прошлый раз были НОВЫЕ и стояли на машине — подставлено БУ. Подтвердите.</div>
+                </div>
+                <div><label class="label">Бренд / модель шин</label><input v-model="s.brand_model" class="input" placeholder="Nokian Hakkapeliitta 10" /></div>
+                <div><label class="label">Повреждения, комментарий</label><input v-model="s.notes" class="input" /></div>
+            </div>
+            <div v-if="setErrors(s).length" class="mt-3 text-sm text-ink-500">Осталось указать: {{ setErrors(s).join(', ') }}</div>
+        </div>
+        <button v-if="form.sets.length < 4" class="btn-secondary justify-self-start" @click="form.sets.push(blank())"><Icon name="accept" :size="18" /> Ещё комплект по этому договору</button>
+    </section>
+
+    <!-- 4. Проверка -->
+    <section v-if="step === 3" class="card p-5 sm:p-6">
+        <dl class="grid gap-4 sm:grid-cols-2">
+            <div><dt class="text-sm text-ink-500">Клиент</dt><dd class="font-semibold">{{ client?.full_name || newClient.full_name }} · {{ fmtPhone(client?.phone) !== '—' ? fmtPhone(client?.phone) : newClient.phone }}</dd></div>
+            <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${selectedVehicle?.plate}` }}</dd></div>
+            <div><dt class="text-sm text-ink-500">Магазин приёма</dt><dd class="font-semibold">{{ stores.find((s) => s.id === form.store_id)?.label }}</dd></div>
+            <div><dt class="text-sm text-ink-500">Тариф и срок</dt><dd class="font-semibold">{{ tariff ? `${tariff.name}, ${money(tariff.period === 'month' ? tariff.price * form.months : tariff.price)}` : 'без тарифа' }} · {{ form.months }} мес.</dd></div>
+        </dl>
+        <div class="mt-4 rounded-[12px] bg-bg p-4" v-for="(s, i) in form.sets" :key="i">
+            <b>{{ s.qty }} шт</b> · {{ s.tire_size.toUpperCase() }} · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition === 'new' ? 'НОВЫЕ' : 'БУ' }}
+            <span v-if="s.season" class="text-ink-500"> · {{ seasons.find((x) => x.value === s.season)?.label }}</span>
+        </div>
+        <div class="mt-4"><label class="label">Комментарий к договору</label><input v-model="form.notes" class="input" /></div>
+        <p class="mt-4 text-sm text-ink-500">После оформления откроется печать: {{ totalWheels }} бирок с одинаковым QR (номер договора) и квитанция клиенту.</p>
+    </section>
+
+    <!-- Навигация -->
+    <div class="sticky bottom-20 lg:bottom-4 mt-6 flex gap-3">
+        <button v-if="step > 0" class="btn-secondary btn-lg" @click="step--">Назад</button>
+        <button v-if="step < 3" class="btn-primary btn-lg flex-1 sm:flex-none" :disabled="!canNext" @click="step++">Далее <Icon name="arrow" :size="18" /></button>
+        <button v-else class="btn-primary btn-lg flex-1 sm:flex-none" :disabled="form.processing" @click="submit">Принять на хранение <Icon name="arrow" :size="18" /></button>
+    </div>
+</template>

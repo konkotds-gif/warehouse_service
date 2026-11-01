@@ -58,10 +58,19 @@ final class TransferService
             ->whereNotIn('id', $this->openLineSetIds());
     }
 
+    /** Строки, которые ещё «держат» комплект: неотгруженные перемещения и не принятые в пункте назначения. */
+    private function openLines()
+    {
+        return TransferLine::query()->where(function ($q) {
+            $q->whereIn('transfer_id', Transfer::query()->select('id')->where('status', TransferStatus::Created->value))
+                ->orWhere(fn ($q) => $q->where('scanned_in', false)->whereIn('transfer_id', Transfer::query()->select('id')
+                    ->whereIn('status', [TransferStatus::Shipped->value, TransferStatus::Discrepancy->value])));
+        });
+    }
+
     private function openLineSetIds()
     {
-        return TransferLine::query()->select('wheel_set_id')
-            ->whereIn('transfer_id', Transfer::query()->select('id')->whereIn('status', [TransferStatus::Created->value, TransferStatus::Shipped->value]));
+        return $this->openLines()->select('wheel_set_id');
     }
 
     /** @param list<string> $setIds */
@@ -79,7 +88,7 @@ final class TransferService
             if ($sets->count() !== count(array_unique($setIds))) {
                 throw DomainError::notFound('Часть комплектов не найдена');
             }
-            $busy = TransferLine::whereIn('wheel_set_id', $setIds)->whereIn('transfer_id', $this->openTransferIds())->pluck('wheel_set_id');
+            $busy = $this->openLines()->whereIn('wheel_set_id', $setIds)->pluck('wheel_set_id');
             foreach ($sets as $set) {
                 if ($set->current_location_id !== $from->id) {
                     throw new DomainError("Комплект {$set->qr_code} находится не в {$from->code}");
@@ -109,11 +118,6 @@ final class TransferService
 
             return $transfer->load('lines.wheelSet');
         });
-    }
-
-    private function openTransferIds()
-    {
-        return Transfer::query()->select('id')->whereIn('status', [TransferStatus::Created->value, TransferStatus::Shipped->value]);
     }
 
     /** Скан при погрузке. */
@@ -208,8 +212,13 @@ final class TransferService
                 $this->sms->setReady($set);
             }
 
-            if ($transfer->status === TransferStatus::Discrepancy && ! $transfer->lines()->where('scanned_in', false)->exists()) {
+            // Всё принято — перемещение закрывается автоматически
+            if (! $transfer->lines()->where('scanned_in', false)->exists()) {
+                $wasShipped = $transfer->status === TransferStatus::Shipped;
                 $transfer->update(['status' => TransferStatus::Received, 'received_at' => now()]);
+                if ($wasShipped) {
+                    $this->outbox->record('transfer.completed', $this->outbox->transferPayload($transfer->fresh()));
+                }
             }
 
             return $line->fresh('wheelSet');

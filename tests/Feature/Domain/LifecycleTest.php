@@ -38,8 +38,7 @@ class LifecycleTest extends TestCase
         $this->assertSame(SetStatus::InTransit, $set->fresh()->status);
         $this->assertSame('TR-'.$t->number, $set->fresh()->currentAddress());
         $this->transfers()->scanIn($t, $set->qr_code);
-        $this->transfers()->complete($t);
-        $this->assertSame(TransferStatus::Received, $t->fresh()->status);
+        $this->assertSame(TransferStatus::Received, $t->fresh()->status, 'всё принято — перемещение закрыто автоматически');
     }
 
     public function test_full_lifecycle(): void

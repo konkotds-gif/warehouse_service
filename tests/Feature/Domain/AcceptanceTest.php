@@ -8,6 +8,7 @@ use App\Domain\Storage\GarageSetState;
 use App\Domain\Storage\SetStatus;
 use App\Domain\Support\DomainError;
 use App\Models\Client;
+use App\Models\GarageSet;
 use App\Models\Movement;
 use App\Models\OutboxEvent;
 use App\Models\StorageContract;
@@ -137,5 +138,20 @@ class AcceptanceTest extends TestCase
     {
         $contract = $this->accept($this->store());
         $this->assertSame(Condition::Used, $this->firstSet($contract)->condition);
+    }
+
+    public function test_same_set_without_garage_choice_reuses_garage_entry(): void
+    {
+        $store = $this->store();
+        $first = $this->accept($store);
+        $set = $this->firstSet($first);
+        $set->update(['status' => SetStatus::Issued, 'current_location_id' => null]);
+
+        $second = app(AcceptanceService::class)->accept([
+            'store_id' => $store->id, 'client_id' => $first->client_id, 'vehicle_id' => $first->vehicle_id,
+            'sets' => [['qty' => 4, 'tire_size' => '205/55 R16 94H', 'with_rims' => true, 'condition' => 'used']],
+        ]);
+        $this->assertSame($set->garage_set_id, $this->firstSet($second)->garage_set_id);
+        $this->assertSame(1, GarageSet::count());
     }
 }

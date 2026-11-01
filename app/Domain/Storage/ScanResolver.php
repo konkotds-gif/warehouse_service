@@ -5,7 +5,7 @@ namespace App\Domain\Storage;
 use App\Domain\Support\DomainError;
 use App\Models\StorageContract;
 use App\Models\WheelSet;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Поиск по содержимому QR бирки (техдок, 3.2): сначала wheel_set.qr_code, затем номер договора.
@@ -29,15 +29,15 @@ final class ScanResolver
     {
         $code = self::clean($code);
         if ($code === '') {
-            return collect();
+            return new Collection;
         }
         $set = WheelSet::where('qr_code', $code)->first();
         if ($set) {
-            return collect([$set]);
+            return new Collection([$set]);
         }
         $contract = StorageContract::where('number', $code)->first();
 
-        return $contract ? $contract->sets()->get() : collect();
+        return $contract ? $contract->sets()->get() : new Collection;
     }
 
     /** Ровно один активный комплект по скану (если по договору их несколько — уточнить). */

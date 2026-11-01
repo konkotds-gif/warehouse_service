@@ -1,0 +1,116 @@
+<?php
+
+namespace App\Http\Controllers\Web;
+
+use App\Domain\Transfer\TransferService;
+use App\Http\Controllers\Controller;
+use App\Http\Presenters\Present;
+use App\Models\Location;
+use App\Models\Transfer;
+use App\Models\WheelSet;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
+
+class TransferController extends Controller
+{
+    use Concerns;
+
+    public function index(Request $request): Response
+    {
+        $location = $this->currentLocation($request);
+        $transfers = Transfer::with(['from', 'to'])->withCount('lines')
+            ->when($location, fn ($q) => $q->where(fn ($q) => $q->where('from_location_id', $location->id)->orWhere('to_location_id', $location->id)))
+            ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
+            ->orderByDesc('created_at')->paginate(30)->withQueryString();
+
+        return Inertia::render('Transfers/Index', [
+            'transfers' => $transfers->through(fn ($t) => Present::transfer($t)),
+            'location' => Present::location($location),
+            'locations' => $this->locations(),
+            'status' => $request->query('status'),
+        ]);
+    }
+
+    public function create(Request $request, TransferService $service): Response
+    {
+        $from = $request->filled('from') ? Location::find($request->integer('from')) : $request->user()->location;
+        $to = $request->filled('to') ? Location::find($request->integer('to')) : null;
+        $candidates = collect();
+        if ($from) {
+            $candidates = $service->bufferCandidates($from)
+                ->merge($service->issueCandidates($from, $to))
+                ->merge(WheelSet::with(['contract.vehicle', 'cell', 'location'])
+                    ->where('current_location_id', $from->id)->whereIn('status', ['placed', 'received', 'ready'])
+                    ->limit(300)->get())
+                ->unique('id');
+        }
+
+        return Inertia::render('Transfers/Create', [
+            'locations' => $this->locations(),
+            'from' => Present::location($from),
+            'to' => Present::location($to),
+            'candidates' => $candidates->map(fn ($s) => Present::set($s))->values()->all(),
+        ]);
+    }
+
+    public function store(Request $request, TransferService $service): RedirectResponse
+    {
+        $data = $request->validate([
+            'from_location_id' => ['required', 'integer'], 'to_location_id' => ['required', 'integer'],
+            'set_ids' => ['required', 'array', 'min:1'], 'set_ids.*' => ['uuid'], 'driver' => ['nullable', 'string', 'max:255'],
+        ]);
+        $transfer = $service->create(Location::findOrFail($data['from_location_id']), Location::findOrFail($data['to_location_id']),
+            $data['set_ids'], $request->user(), $data['driver'] ?? null);
+
+        return redirect()->route('transfers.show', $transfer)->with('success', "Перемещение {$transfer->number} создано. Сканируйте бирки при погрузке.");
+    }
+
+    public function show(Transfer $transfer): Response
+    {
+        $transfer->load(['from', 'to', 'lines.wheelSet.contract.vehicle', 'lines.wheelSet.cell', 'lines.wheelSet.location', 'lines.wheelSet.transfer']);
+
+        return Inertia::render('Transfers/Show', ['transfer' => Present::transfer($transfer, true)]);
+    }
+
+    public function scanOut(Request $request, Transfer $transfer, TransferService $service): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
+        $line = $service->scanOut($transfer, $data['code'], $data['qty'] ?? null);
+
+        return response()->json(['message' => "Погружен {$line->wheelSet->qr_code}", 'line_id' => $line->id]);
+    }
+
+    public function ship(Request $request, Transfer $transfer, TransferService $service): RedirectResponse
+    {
+        $service->ship($transfer, $request->input('driver'));
+
+        return back()->with('success', 'Перемещение отгружено — комплекты в пути');
+    }
+
+    public function scanIn(Request $request, Transfer $transfer, TransferService $service): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
+        $line = $service->scanIn($transfer, $data['code'], $data['qty'] ?? null);
+        $set = $line->wheelSet->fresh();
+
+        return response()->json(['message' => "Принят {$set->qr_code}: {$set->status->label()}", 'line_id' => $line->id]);
+    }
+
+    public function complete(Transfer $transfer, TransferService $service): RedirectResponse
+    {
+        $t = $service->complete($transfer);
+
+        return back()->with($t->status->value === 'received' ? 'success' : 'error',
+            $t->status->value === 'received' ? 'Приёмка завершена, всё сошлось' : 'Приёмка завершена с расхождением — ответственному создано задание');
+    }
+
+    public function cancel(Transfer $transfer, TransferService $service): RedirectResponse
+    {
+        $service->cancel($transfer);
+
+        return back()->with('success', 'Перемещение отменено');
+    }
+}
