@@ -101,18 +101,11 @@ node -v   # v22.x
    - Галочка **SSL** → **Let's Encrypt**, включить **перенаправление HTTP → HTTPS**.
 3. Свойства сайта → **PHP** (или «Настройки PHP»):
    `upload_max_filesize = 20M`, `post_max_size = 25M`, `memory_limit = 256M`, `max_execution_time = 60`.
-4. Свойства сайта → **Конфигурационный файл nginx** (или «Дополнительные директивы nginx») — добавьте
-   из `deploy/nginx-sklad.conf` всё, кроме `root` (корень уже задан в п. 2):
-
-   ```nginx
-   client_max_body_size 20m;
-   location / { try_files $uri $uri/ /index.php?$query_string; }
-   location = /sw.js { add_header Cache-Control "no-cache"; try_files $uri =404; }
-   location /build/ { expires 1y; add_header Cache-Control "public, immutable"; }
-   ```
-
-   Если в конфиге ispmanager уже есть `location /`, замените в нём `try_files` на строку выше,
-   а не дублируйте блок.
+4. Конфиг nginx — готовый вариант для ispmanager в `deploy/nginx-wh.diskimira.com.conf`
+   (корень `current/public`, редирект на https без www, кэш `/build/` на год, `sw.js` без кэша,
+   запрет скрытых файлов, `client_max_body_size 20m`, `$realpath_root` для PHP после смены релиза).
+   Сначала в настройках сайта выберите PHP 8.4 и корень `current/public`, затем сверьте номер сокета
+   в `fastcgi_pass` с тем, что сгенерировал ispmanager, и перенесите блоки, помеченные `# WH:`.
 
 > DNS: A-запись `wh.diskimira.com` должна указывать на этот сервер **до** выпуска сертификата Let's Encrypt.
 
