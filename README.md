@@ -4,7 +4,7 @@
 перемещения магазин ⇄ склад, адресное хранение `XX_YY_ZZ` (склад_ряд_ячейка), выдача, инвентаризация,
 гараж клиента и обмен с 1С:УТ 10.3 через REST API.
 
-Документы: [план](docs/PLAN.md) · [техдокументация](docs/TECHNICAL.md) · [API для 1С](docs/API.md) · [изменения](CHANGELOG.md)
+Документы: [установка на сервер](docs/INSTALL.md) · [план](docs/PLAN.md) · [техдокументация](docs/TECHNICAL.md) · [API для 1С](docs/API.md) · [изменения](CHANGELOG.md)
 
 ## Стек
 
@@ -52,6 +52,8 @@ php artisan serve
 Ячейки склада генерируются в интерфейсе: «Склады и ячейки» → склад → «Сгенерировать ряды».
 
 ## Выкладка на сервер (Debian 12 + ispmanager 6)
+
+Подробная пошаговая инструкция — [docs/INSTALL.md](docs/INSTALL.md).
 
 1. Создать сайт и БД в ispmanager, PHP 8.4, корень — `/var/www/sklad/data/app/current/public`
    (фрагмент nginx — `deploy/nginx-sklad.conf`).
