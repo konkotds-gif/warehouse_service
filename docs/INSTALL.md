@@ -377,6 +377,7 @@ cd ~/www/wh.diskimira.com
 | `deploy.sh`: *Не найден PHP 8.3+* | PHP 8.4 не установлен в ispmanager (шаг 1) или лежит в нестандартном месте — укажите `PHP_BIN=…` в `deploy.env`. |
 | `php artisan …`: *Composer detected issues in your platform… PHP >= 8.3* | Запущен системный `php` (8.2). Для ручных команд используйте обёртку `./artisan …` из каталога сайта. |
 | `deploy.sh`: *Нужен Node.js 20.19+* | Установлен Node 18 из Debian — поставьте Node 22 (шаг 2, под root). |
+| `ssh`: */etc/ssh/ssh_config: line N: Bad configuration option: permitrootlogin* | В клиентский конфиг SSH попала серверная опция. Исправляет root: перенести строку `PermitRootLogin …` из `/etc/ssh/ssh_config` в `/etc/ssh/sshd_config`. Обход без root: `ssh -F ~/.ssh/config -T github-wh`, в `deploy.env` раскомментировать `GIT_SSH_COMMAND="ssh -F $HOME/.ssh/config"`, а для разового клона на шаге 6 — `GIT_SSH_COMMAND="ssh -F $HOME/.ssh/config" git clone …`. |
 | `git clone`: *Permission denied (publickey)* / *Repository not found* | Клонирование идёт не через `github-wh`: проверьте `DEPLOY_REPO` и `ssh -T github-wh` (шаг 5). |
 | `SQLSTATE[HY000] [2002]` / `[1045]` | Нет сети до 192.168.1.113:3310 или нет GRANT для IP веб-сервера (шаг 4). |
 | 500 без текста | Смотрите `shared/storage/logs/laravel-*.log`. Часто — права на `shared/storage` или пустой `APP_KEY`. |
