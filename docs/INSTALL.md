@@ -30,6 +30,7 @@ Debian 12 + ispmanager 6 · домен **wh.diskimira.com** · PHP 8.4 · MariaD
 export SITE_USER=1c8
 export BASE=/var/www/$SITE_USER/data/www/wh.diskimira.com
 export BRANCH=claude/project-thread-a2b3r2
+export DEPLOY_REPO=git@github-wh:konkotds-gif/warehouse_service.git   # отдельный SSH-ключ, шаг 5
 export PATH=$BASE/bin:$PATH           # php = 8.4 только в этой сессии (см. шаг 1)
 ```
 
@@ -38,6 +39,11 @@ export PATH=$BASE/bin:$PATH           # php = 8.4 только в этой се�
 > Наш проект получает PHP 8.4 через собственную папку `$BASE/bin` (симлинк `php` → PHP 8.4),
 > которая добавляется в `PATH` только в командах этого проекта.
 > Папка `wh.diskimira.com` должна быть пустой (или содержать только заглушку ispmanager) — другой проект в неё не кладите.
+>
+> **Оба проекта работают под одним пользователем `1c8`.** Поэтому в инструкции: свой SSH-ключ для GitHub
+> под отдельным именем (не `id_ed25519`, шаг 5), `PATH` не прописывается в `~/.bashrc`/`~/.profile`,
+> воркер называется `wh-worker`, cron — отдельной строкой. Кэш, сессии и очередь лежат в своей БД
+> `wh-dm-01`, поэтому с другим проектом не пересекаются.
 
 Итоговая структура каталогов:
 
@@ -156,20 +162,37 @@ FLUSH PRIVILEGES;
 
 ## 5. Доступ сервера к GitHub (deploy key)
 
-Репозиторий приватный, поэтому серверу нужен ключ только на чтение. Под пользователем сайта:
+Репозиторий приватный, поэтому серверу нужен ключ только на чтение. Под пользователем `1c8`
+уже может быть ключ другого проекта — **не перезаписываем его**, создаём отдельный `wh_deploy`
+и псевдоним хоста `github-wh`:
 
 ```bash
 su - 1c8
-ssh-keygen -t ed25519 -C "wh.diskimira.com deploy" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
+ls ~/.ssh/                      # посмотреть, какие ключи уже есть — их не трогаем
+ssh-keygen -t ed25519 -C "wh.diskimira.com deploy" -f ~/.ssh/wh_deploy -N ""
+
+cat >> ~/.ssh/config <<'EOF'
+
+Host github-wh
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/wh_deploy
+    IdentitiesOnly yes
+EOF
+chmod 600 ~/.ssh/config
+
+cat ~/.ssh/wh_deploy.pub
 ```
 
-Скопируйте вывод в GitHub: репозиторий → **Settings → Deploy keys → Add deploy key**
+Скопируйте вывод в GitHub: репозиторий `warehouse_service` → **Settings → Deploy keys → Add deploy key**
 (галочку «Allow write access» **не** ставить). Проверка:
 
 ```bash
-ssh -T git@github.com     # «Hi konkotds-gif/warehouse_service! You've successfully authenticated…»
+ssh -T github-wh     # «Hi konkotds-gif/warehouse_service! You've successfully authenticated…»
 ```
+
+Доступ другого проекта к его репозиторию при этом не меняется: он продолжает ходить на `github.com`
+со своим ключом.
 
 ## 6. Каталоги и файл настроек `.env`
 
@@ -180,7 +203,7 @@ mkdir -p $BASE/shared/storage/{app/public,framework/{cache,sessions,views},logs}
 cd $BASE
 
 # deploy.sh из репозитория
-git clone --depth 1 --branch $BRANCH git@github.com:konkotds-gif/warehouse_service.git /tmp/wh-src
+git clone --depth 1 --branch $BRANCH $DEPLOY_REPO /tmp/wh-src
 cp /tmp/wh-src/deploy.sh $BASE/ && chmod +x $BASE/deploy.sh
 cp /tmp/wh-src/.env.example $BASE/shared/.env
 rm -rf /tmp/wh-src
@@ -235,7 +258,7 @@ chmod 600 $BASE/shared/.env
 
 ```bash
 cd $BASE
-PATH=$BASE/bin:$PATH DEPLOY_BASE=$BASE PHP_BIN=$BASE/bin/php ./deploy.sh $BRANCH
+PATH=$BASE/bin:$PATH DEPLOY_BASE=$BASE DEPLOY_REPO=$DEPLOY_REPO PHP_BIN=$BASE/bin/php ./deploy.sh $BRANCH
 ```
 
 Скрипт сам: клонирует код в `releases/<дата>`, подключает `shared/.env` и `shared/storage`,
@@ -352,7 +375,7 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 ```bash
 su - 1c8
 cd /var/www/1c8/data/www/wh.diskimira.com
-PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh claude/project-thread-a2b3r2
+PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD DEPLOY_REPO=git@github-wh:konkotds-gif/warehouse_service.git PHP_BIN=$PWD/bin/php ./deploy.sh claude/project-thread-a2b3r2
 ```
 
 Откат на предыдущий релиз:
@@ -374,6 +397,7 @@ PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh --rollback
 |---|---|
 | `composer`: *requires php ^8.3* | composer запущен системным PHP 8.2. Выполните `export PATH=$BASE/bin:$PATH` (шаг 1). Системный PHP не меняйте — на нём другой проект. |
 | `php artisan …`: *Composer detected issues in your platform… PHP >= 8.3* | В этой SSH-сессии не выполнен `export PATH=$BASE/bin:$PATH` — `php` указывает на системный 8.2. |
+| `git clone`: *Permission denied (publickey)* / *Repository not found* | Клонирование идёт не через `github-wh`: проверьте `DEPLOY_REPO` и `ssh -T github-wh` (шаг 5). |
 | `npm`: *Vite requires Node.js 20.19+* | Установлен Node 18 из Debian — поставьте Node 22 (шаг 2). |
 | `SQLSTATE[HY000] [2002]` / `[1045]` | Нет сети до 192.168.1.113:3310 или нет GRANT для IP веб-сервера (шаг 4). |
 | 500 без текста | Смотрите `shared/storage/logs/laravel-*.log`. Часто — права на `shared/storage` или пустой `APP_KEY`. |
