@@ -19,15 +19,15 @@ Debian 12 + ispmanager 6 · домен **wh.diskimira.com** · PHP 8.4 · MariaD
 | База данных | `wh-dm-01` |
 | Пользователь БД | `wh-01` |
 | Пароль БД | `<ПАРОЛЬ_БД>` |
-| Пользователь сайта в ispmanager | `wh` (*пример — подставьте своего*) |
-| Каталог сайта | `/var/www/wh/data/www/wh.diskimira.com` |
+| Пользователь сайта в ispmanager | `1c8` |
+| Каталог сайта | `/var/www/1c8/data/www/wh.diskimira.com` |
 | Ветка репозитория | `claude/project-thread-a2b3r2` (пока нет ветки `main`) |
 
 Во всех командах ниже используются переменные — выполните это в начале каждой SSH-сессии
-(под пользователем сайта) и поправьте `SITE_USER`, если он другой:
+(под пользователем сайта) (пользователь сайта — `1c8`):
 
 ```bash
-export SITE_USER=wh
+export SITE_USER=1c8
 export BASE=/var/www/$SITE_USER/data/www/wh.diskimira.com
 export BRANCH=claude/project-thread-a2b3r2
 export PATH=/opt/php84/bin:$PATH      # PHP 8.4 из ispmanager — первым в PATH (важно для composer)
@@ -36,7 +36,7 @@ export PATH=/opt/php84/bin:$PATH      # PHP 8.4 из ispmanager — первым
 Итоговая структура каталогов:
 
 ```
-/var/www/wh/data/www/wh.diskimira.com/
+/var/www/1c8/data/www/wh.diskimira.com/
 ├── deploy.sh
 ├── shared/
 │   ├── .env                  ← настройки и пароли (один на все релизы)
@@ -85,12 +85,12 @@ node -v   # v22.x
 
 ## 3. Пользователь и сайт в ispmanager
 
-1. **Пользователи** → создать пользователя `wh` (или использовать существующего).
+1. **Пользователи** → пользователь `1c8` (существующий).
    Включить ему **доступ к shell** (нужен для deploy.sh и artisan).
 2. **Сайты** → **Создать**:
-   - Имя: `wh.diskimira.com`, владелец — `wh`;
+   - Имя: `wh.diskimira.com`, владелец — `1c8`;
    - Обработчик: **PHP-FPM**, версия **PHP 8.4**;
-   - Корневая директория: `/var/www/wh/data/www/wh.diskimira.com/current/public`
+   - Корневая директория: `/var/www/1c8/data/www/wh.diskimira.com/current/public`
      (папки `current` пока нет — это нормально, она появится после первой выкладки;
      если ispmanager не даёт сохранить, временно оставьте путь по умолчанию и поменяйте после шага 7);
    - Галочка **SSL** → **Let's Encrypt**, включить **перенаправление HTTP → HTTPS**.
@@ -141,7 +141,7 @@ FLUSH PRIVILEGES;
 Репозиторий приватный, поэтому серверу нужен ключ только на чтение. Под пользователем сайта:
 
 ```bash
-su - wh
+su - 1c8
 ssh-keygen -t ed25519 -C "wh.diskimira.com deploy" -f ~/.ssh/id_ed25519 -N ""
 cat ~/.ssh/id_ed25519.pub
 ```
@@ -155,7 +155,7 @@ ssh -T git@github.com     # «Hi konkotds-gif/warehouse_service! You've successf
 
 ## 6. Каталоги и файл настроек `.env`
 
-Дальше всё — **под пользователем сайта** (`su - wh`), не под root.
+Дальше всё — **под пользователем сайта** (`su - 1c8`), не под root.
 
 ```bash
 mkdir -p $BASE/shared/storage/{app/public,framework/{cache,sessions,views},logs} $BASE/releases
@@ -239,12 +239,12 @@ php artisan migrate:status               # все миграции — Ran
 
 ### Права
 
-В ispmanager PHP-FPM работает от имени владельца сайта, поэтому достаточно, чтобы всё принадлежало `wh`:
+В ispmanager PHP-FPM работает от имени владельца сайта, поэтому достаточно, чтобы всё принадлежало `1c8`:
 
 ```bash
 # под root, если что-то создавалось от root
-chown -R wh:wh /var/www/wh/data/www/wh.diskimira.com
-chmod -R ug+rwX /var/www/wh/data/www/wh.diskimira.com/shared/storage
+chown -R 1c8:1c8 /var/www/1c8/data/www/wh.diskimira.com
+chmod -R ug+rwX /var/www/1c8/data/www/wh.diskimira.com/shared/storage
 ```
 
 ## 8. Первый администратор и ключ для 1С
@@ -277,10 +277,10 @@ php artisan storage:import /путь/к/файлу.csv
 
 ## 9. Планировщик (cron)
 
-ispmanager → **Планировщик (CRON)** → создать задачу от пользователя `wh`, **каждую минуту** (`* * * * *`):
+ispmanager → **Планировщик (CRON)** → создать задачу от пользователя `1c8`, **каждую минуту** (`* * * * *`):
 
 ```bash
-cd /var/www/wh/data/www/wh.diskimira.com/current && /opt/php84/bin/php artisan schedule:run >> /dev/null 2>&1
+cd /var/www/1c8/data/www/wh.diskimira.com/current && /opt/php84/bin/php artisan schedule:run >> /dev/null 2>&1
 ```
 
 Он запускает: пометку просроченных договоров (02:00), проверку неподтверждённых событий 1С
@@ -293,14 +293,14 @@ cd /var/www/wh/data/www/wh.diskimira.com/current && /opt/php84/bin/php artisan s
 
 ```ini
 [program:wh-worker]
-command=/opt/php84/bin/php /var/www/wh/data/www/wh.diskimira.com/current/artisan queue:work --sleep=3 --tries=3 --max-time=3600
-user=wh
+command=/opt/php84/bin/php /var/www/1c8/data/www/wh.diskimira.com/current/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+user=1c8
 numprocs=1
 autostart=true
 autorestart=true
 stopwaitsecs=3600
 redirect_stderr=true
-stdout_logfile=/var/www/wh/data/www/wh.diskimira.com/shared/storage/logs/worker.log
+stdout_logfile=/var/www/1c8/data/www/wh.diskimira.com/shared/storage/logs/worker.log
 ```
 
 ```bash
@@ -332,8 +332,8 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 Обновление до свежего кода ветки:
 
 ```bash
-su - wh
-cd /var/www/wh/data/www/wh.diskimira.com
+su - 1c8
+cd /var/www/1c8/data/www/wh.diskimira.com
 PATH=/opt/php84/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=/opt/php84/bin/php ./deploy.sh claude/project-thread-a2b3r2
 ```
 
