@@ -1,0 +1,3 @@
+number;accepted_at;store_code;client_name;phone;plate;make;model;qty;tire_size;with_rims;condition;season;address;paid_until
+000101;2026-04-12;М01;Иванов Иван Иванович;+7 900 123-45-67;А123ВС77;Toyota;Camry;4;215/60 R16;да;БУ;Зима;02_01_05;2026-10-12
+000102;2026-04-15;М05;Петрова Анна;89001112233;К777ММ199;Kia;Rio;4;185/65 R15;нет;НОВЫЕ;Зима;;2026-10-15
