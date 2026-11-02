@@ -58,7 +58,7 @@ php artisan serve
 1. Создать сайт и БД в ispmanager, PHP 8.4, корень — `/var/www/sklad/data/app/current/public`
    (фрагмент nginx — `deploy/nginx-sklad.conf`).
 2. Положить `.env` в `/var/www/sklad/data/app/shared/.env` (`APP_ENV=production`, `APP_DEBUG=false`, DB_*, `APP_URL`).
-3. Запустить `./deploy.sh main` под пользователем сайта. Откат — `./deploy.sh --rollback`.
+3. Положить рядом с `deploy.sh` файл `deploy.env` (образец — `deploy/deploy.env.example`) и запустить `./deploy.sh` под пользователем сайта, без sudo: PHP 8.3+ он найдёт сам, даже если системный php старше. Откат — `./deploy.sh --rollback`, ручные команды — `./artisan …`.
    Если задан `FPM_SERVICE=php8.4-fpm`, пул PHP-FPM перезагрузится автоматически.
 4. Cron — `deploy/crontab.txt`, воркер очереди — `deploy/supervisor-sklad-worker.conf`.
 5. Создать администратора (`user:create`) и ключ для 1С (`onec:key`).

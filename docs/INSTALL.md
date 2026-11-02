@@ -23,36 +23,30 @@ Debian 12 + ispmanager 6 · домен **wh.diskimira.com** · PHP 8.4 · MariaD
 | Каталог сайта | `/var/www/1c8/data/www/wh.diskimira.com` |
 | Ветка репозитория | `claude/project-thread-a2b3r2` (пока нет ветки `main`) |
 
-Во всех командах ниже используются переменные — выполните это в начале каждой SSH-сессии
-(под пользователем сайта) (пользователь сайта — `1c8`):
-
-```bash
-export SITE_USER=1c8
-export BASE=/var/www/$SITE_USER/data/www/wh.diskimira.com
-export BRANCH=claude/project-thread-a2b3r2
-export DEPLOY_REPO=git@github-wh:konkotds-gif/warehouse_service.git   # отдельный SSH-ключ, шаг 5
-export PATH=$BASE/bin:$PATH           # php = 8.4 только в этой сессии (см. шаг 1)
-```
+Переменные окружения в SSH-сессии **не нужны**: `deploy.sh` сам находит PHP 8.4, берёт настройки
+из файла `deploy.env` рядом с собой и создаёт обёртку `artisan` для ручных команд.
 
 > На сервере уже работает другой Laravel-проект на PHP 8.2 и системный composer.
 > Их **не трогаем**: системный `php` остаётся 8.2, `update-alternatives` не меняем.
-> Наш проект получает PHP 8.4 через собственную папку `$BASE/bin` (симлинк `php` → PHP 8.4),
-> которая добавляется в `PATH` только в командах этого проекта.
+> `deploy.sh` просто запускает composer и artisan интерпретатором PHP 8.4.
 > Папка `wh.diskimira.com` должна быть пустой (или содержать только заглушку ispmanager) — другой проект в неё не кладите.
 >
-> **Оба проекта работают под одним пользователем `1c8`.** Поэтому в инструкции: свой SSH-ключ для GitHub
-> под отдельным именем (не `id_ed25519`, шаг 5), `PATH` не прописывается в `~/.bashrc`/`~/.profile`,
+> **Оба проекта работают под одним пользователем `1c8`.** Поэтому: свой SSH-ключ для GitHub
+> под отдельным именем (не `id_ed25519`, шаг 5), ничего не прописывается в `~/.bashrc`/`~/.profile`,
 > воркер называется `wh-worker`, cron — отдельной строкой. Кэш, сессии и очередь лежат в своей БД
 > `wh-dm-01`, поэтому с другим проектом не пересекаются.
+>
+> **sudo пользователю `1c8` не нужен.** Шаги «под root» (2, 4, 10) выполняет администратор сервера.
 
 Итоговая структура каталогов:
 
 ```
 /var/www/1c8/data/www/wh.diskimira.com/
-├── deploy.sh
-├── bin/php -> PHP 8.4        ← PHP только для этого проекта
+├── deploy.sh                 ← скрипт выкладки
+├── deploy.env                ← его настройки (репозиторий, ветка)
+├── artisan                   ← обёртка: ./artisan <команда> = PHP 8.4 + current
 ├── shared/
-│   ├── .env                  ← настройки и пароли (один на все релизы)
+│   ├── .env                  ← настройки и пароли приложения (один на все релизы)
 │   └── storage/              ← логи, сессии, фото комплектов
 ├── releases/
 │   ├── 20261102-150000/      ← версии кода
@@ -71,28 +65,15 @@ export PATH=$BASE/bin:$PATH           # php = 8.4 только в этой се�
 2. Там же, в свойствах PHP 8.4 → **Расширения**, включите:
    `mbstring`, `pdo_mysql` (mysqlnd), `fileinfo`, `dom`/`xml`, `tokenizer`, `ctype`, `iconv`,
    `openssl`, `curl`, `zip`, `bcmath`, `intl`, `opcache`.
-3. Найдите бинарник PHP 8.4 и сделайте на него симлинк в папке проекта (под пользователем `1c8`):
+3. Проверка по SSH (что PHP 8.4 установлен и где лежит):
 
    ```bash
-   ls /opt/php84/bin/php /usr/bin/php8.4 2>/dev/null     # какой из путей существует
-   PHP84=/opt/php84/bin/php                              # или /usr/bin/php8.4 — что нашлось
-
-   mkdir -p $BASE/bin
-   ln -sfn $PHP84 $BASE/bin/php
-
-   $BASE/bin/php -v      # PHP 8.4.x
-   $BASE/bin/php -m | grep -Ei 'pdo_mysql|mbstring|fileinfo|dom|zip|intl|opcache'
+   ls /opt/php84/bin/php /usr/bin/php8.4 2>/dev/null
+   /opt/php84/bin/php -m | grep -Ei 'pdo_mysql|mbstring|fileinfo|dom|zip|intl|opcache'
    ```
 
-4. Проверьте, что composer подхватывает 8.4 через наш `PATH` (системный при этом не меняется):
-
-   ```bash
-   export PATH=$BASE/bin:$PATH
-   composer -V            # «PHP version 8.4.x (…/wh.diskimira.com/bin/php)»
-   ```
-
-   В новой SSH-сессии без этого `export` composer снова будет на 8.2 — так и должно быть
-   для другого проекта.
+   Больше ничего делать не нужно: `deploy.sh` найдёт PHP 8.4 по этим путям сам.
+   Если он лежит где-то ещё — пропишите путь в `deploy.env` строкой `PHP_BIN=…` (шаг 6).
 
 ## 2. Системные пакеты (под root)
 
@@ -194,30 +175,32 @@ ssh -T github-wh     # «Hi konkotds-gif/warehouse_service! You've successfully 
 Доступ другого проекта к его репозиторию при этом не меняется: он продолжает ходить на `github.com`
 со своим ключом.
 
-## 6. Каталоги и файл настроек `.env`
+## 6. deploy.sh, deploy.env и файл настроек `.env`
 
-Дальше всё — **под пользователем сайта** (`su - 1c8`), не под root.
+Дальше всё — **под пользователем `1c8`**, без sudo.
 
 ```bash
-mkdir -p $BASE/shared/storage/{app/public,framework/{cache,sessions,views},logs} $BASE/releases
-cd $BASE
+cd ~/www/wh.diskimira.com
 
-# deploy.sh из репозитория
-git clone --depth 1 --branch $BRANCH $DEPLOY_REPO /tmp/wh-src
-cp /tmp/wh-src/deploy.sh $BASE/ && chmod +x $BASE/deploy.sh
-cp /tmp/wh-src/.env.example $BASE/shared/.env
+# забрать deploy.sh и образец его настроек из репозитория
+git clone --depth 1 --branch claude/project-thread-a2b3r2 git@github-wh:konkotds-gif/warehouse_service.git /tmp/wh-src
+cp /tmp/wh-src/deploy.sh . && chmod +x deploy.sh
+cp /tmp/wh-src/deploy/deploy.env.example deploy.env
 rm -rf /tmp/wh-src
 
-# ключ приложения
-echo "base64:$(openssl rand -base64 32)"     # скопируйте результат в APP_KEY ниже
+# первый запуск: создаст каталоги и shared/.env со сгенерированным APP_KEY, затем остановится
+./deploy.sh
 ```
 
-Отредактируйте `$BASE/shared/.env` (`nano $BASE/shared/.env`) — замените соответствующие строки:
+`deploy.env` уже содержит нужные значения (репозиторий через `github-wh`, ветка `claude/project-thread-a2b3r2`),
+править его не требуется.
+
+Отредактируйте `shared/.env` (`nano shared/.env`) — замените соответствующие строки
+(`APP_KEY` уже заполнен, его не трогайте):
 
 ```dotenv
 APP_NAME="Хранение колёс"
 APP_ENV=production
-APP_KEY=base64:...сгенерированный_ключ...
 APP_DEBUG=false
 APP_URL=https://wh.diskimira.com
 APP_DISPLAY_TIMEZONE=Asia/Yekaterinburg
@@ -248,33 +231,30 @@ SMS_DRIVER=log
 
 Остальные строки (`STORAGE_*`, `ONEC_*`) можно оставить как в образце.
 
-```bash
-chmod 600 $BASE/shared/.env
-```
-
 > **APP_KEY не меняйте после запуска** — им шифруются сессии; при смене все пользователи разлогинятся.
 
 ## 7. Первая выкладка
 
 ```bash
-cd $BASE
-PATH=$BASE/bin:$PATH DEPLOY_BASE=$BASE DEPLOY_REPO=$DEPLOY_REPO PHP_BIN=$BASE/bin/php ./deploy.sh $BRANCH
+cd ~/www/wh.diskimira.com
+./deploy.sh
 ```
 
-Скрипт сам: клонирует код в `releases/<дата>`, подключает `shared/.env` и `shared/storage`,
-выполняет `composer install --no-dev`, собирает интерфейс (`npm ci && npm run build`),
+Скрипт сам: находит PHP 8.4 и пишет, какой взял (`PHP: /opt/php84/bin/php (8.4.x)`), клонирует код
+в `releases/<дата>`, подключает `shared/.env` и `shared/storage`, выполняет `composer install --no-dev`
+(системным composer, но на PHP 8.4), собирает интерфейс (`npm ci && npm run build`),
 применяет миграции (`migrate --force`), делает `storage:link`, `optimize` и переключает `current`.
 
 Проверьте:
 
 ```bash
-ls -l $BASE/current                      # симлинк на свежий релиз
-cd $BASE/current && php artisan about    # Environment: production, Debug: OFF, Database: mariadb
-php artisan migrate:status               # все миграции — Ran
+ls -l current                     # симлинк на свежий релиз
+./artisan about                   # Environment: production, Debug: OFF, Database: mariadb, PHP 8.4
+./artisan migrate:status          # все миграции — Ran
 ```
 
 Если корень сайта на шаге 3 временно оставляли по умолчанию — теперь поменяйте его на
-`$BASE/current/public`.
+`/var/www/1c8/data/www/wh.diskimira.com/current/public`.
 
 > **Демо-данные (`--seed`, `db:seed`) на боевом сервере не запускать.** Они создают пользователей с паролем `password`.
 
@@ -291,8 +271,8 @@ chmod -R ug+rwX /var/www/1c8/data/www/wh.diskimira.com/shared/storage
 ## 8. Первый администратор и ключ для 1С
 
 ```bash
-cd $BASE/current
-php artisan user:create admin "Администратор" --role=admin
+cd ~/www/wh.diskimira.com
+./artisan user:create admin "Администратор" --role=admin
 # пароль спросит интерактивно (не короче 8 символов)
 ```
 
@@ -300,20 +280,20 @@ php artisan user:create admin "Администратор" --role=admin
 («Склады и ячейки» → склад → «Сгенерировать ряды»). Из консоли можно так:
 
 ```bash
-php artisan user:create ivanov "Иванов И." --role=seller --location=М01
+./artisan user:create ivanov "Иванов И." --role=seller --location=М01
 ```
 
 Ключ API для 1С (выводится **один раз** — сразу сохраните):
 
 ```bash
-php artisan onec:key "1С УТ" --ips=<IP_СЕРВЕРА_1С>
+./artisan onec:key "1С УТ" --ips=<IP_СЕРВЕРА_1С>
 ```
 
 Перенос текущих хранений из Excel (CSV, `;`, образец — `deploy/import-example.csv`):
 
 ```bash
-php artisan storage:import /путь/к/файлу.csv --dry-run    # только проверка
-php artisan storage:import /путь/к/файлу.csv
+./artisan storage:import /путь/к/файлу.csv --dry-run    # только проверка
+./artisan storage:import /путь/к/файлу.csv
 ```
 
 ## 9. Планировщик (cron)
@@ -321,11 +301,11 @@ php artisan storage:import /путь/к/файлу.csv
 ispmanager → **Планировщик (CRON)** → создать задачу от пользователя `1c8`, **каждую минуту** (`* * * * *`):
 
 ```bash
-cd /var/www/1c8/data/www/wh.diskimira.com/current && /var/www/1c8/data/www/wh.diskimira.com/bin/php artisan schedule:run >> /dev/null 2>&1
+/var/www/1c8/data/www/wh.diskimira.com/artisan schedule:run >> /dev/null 2>&1
 ```
 
 Он запускает: пометку просроченных договоров (02:00), проверку неподтверждённых событий 1С
-(каждые 10 минут) и чистку журнала 1С (ежедневно). Проверка: `php artisan schedule:list`.
+(каждые 10 минут) и чистку журнала 1С (ежедневно). Проверка: `./artisan schedule:list`.
 
 ## 10. Очередь (воркер)
 
@@ -334,7 +314,7 @@ cd /var/www/1c8/data/www/wh.diskimira.com/current && /var/www/1c8/data/www/wh.di
 
 ```ini
 [program:wh-worker]
-command=/var/www/1c8/data/www/wh.diskimira.com/bin/php /var/www/1c8/data/www/wh.diskimira.com/current/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+command=/var/www/1c8/data/www/wh.diskimira.com/artisan queue:work --sleep=3 --tries=3 --max-time=3600
 user=1c8
 numprocs=1
 autostart=true
@@ -351,7 +331,7 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 `deploy.sh` после каждой выкладки делает `queue:restart` — воркер сам перезапустится на новом коде.
 
 > Нет возможности поставить supervisor — временно добавьте в cron ещё одну задачу «каждую минуту»:
-> `cd …/current && …/wh.diskimira.com/bin/php artisan queue:work --stop-when-empty --max-time=55 >> /dev/null 2>&1`
+> `/var/www/1c8/data/www/wh.diskimira.com/artisan queue:work --stop-when-empty --max-time=55 >> /dev/null 2>&1`
 
 ## 11. Проверка после установки
 
@@ -362,7 +342,7 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 | Вход | логин `admin` | рабочий стол администратора |
 | Бирки | создать тестовое хранение → «Печать бирок» | бирки с QR (номер договора) |
 | Фото | загрузить фото комплекта | загружается, открывается |
-| Планировщик | `php artisan schedule:list` | 3 задачи |
+| Планировщик | `./artisan schedule:list` | 3 задачи |
 | Воркер | `supervisorctl status wh-worker` | RUNNING |
 | API-документация | `https://wh.diskimira.com/docs/api` (под админом) | страница Scramble |
 
@@ -370,18 +350,17 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 
 ## 12. Обновление и откат
 
-Обновление до свежего кода ветки:
+Обновление до свежего кода ветки (из `deploy.env`):
 
 ```bash
-su - 1c8
-cd /var/www/1c8/data/www/wh.diskimira.com
-PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD DEPLOY_REPO=git@github-wh:konkotds-gif/warehouse_service.git PHP_BIN=$PWD/bin/php ./deploy.sh claude/project-thread-a2b3r2
+cd ~/www/wh.diskimira.com
+./deploy.sh
 ```
 
-Откат на предыдущий релиз:
+Другую ветку можно указать явно: `./deploy.sh <ветка>`. Откат на предыдущий релиз:
 
 ```bash
-PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh --rollback
+./deploy.sh --rollback
 ```
 
 > Откат возвращает код, но **не откатывает миграции БД**. Перед обновлением, меняющим схему,
@@ -389,23 +368,23 @@ PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh --rollback
 
 Хранится 5 последних релизов (`DEPLOY_KEEP`). Кэш OPcache сбрасывается при перезагрузке пула PHP-FPM —
 если после выкладки виден старый код, перезапустите PHP 8.4 в ispmanager или задайте
-`FPM_SERVICE=<имя службы php-fpm>` при запуске deploy.sh (нужен sudo).
+`FPM_SERVICE=<имя службы php-fpm>` в `deploy.env` (нужен sudo).
 
 ## 13. Частые проблемы
 
 | Симптом | Причина и решение |
 |---|---|
-| `composer`: *requires php ^8.3* | composer запущен системным PHP 8.2. Выполните `export PATH=$BASE/bin:$PATH` (шаг 1). Системный PHP не меняйте — на нём другой проект. |
-| `php artisan …`: *Composer detected issues in your platform… PHP >= 8.3* | В этой SSH-сессии не выполнен `export PATH=$BASE/bin:$PATH` — `php` указывает на системный 8.2. |
+| `deploy.sh`: *Не найден PHP 8.3+* | PHP 8.4 не установлен в ispmanager (шаг 1) или лежит в нестандартном месте — укажите `PHP_BIN=…` в `deploy.env`. |
+| `php artisan …`: *Composer detected issues in your platform… PHP >= 8.3* | Запущен системный `php` (8.2). Для ручных команд используйте обёртку `./artisan …` из каталога сайта. |
+| `deploy.sh`: *Нужен Node.js 20.19+* | Установлен Node 18 из Debian — поставьте Node 22 (шаг 2, под root). |
 | `git clone`: *Permission denied (publickey)* / *Repository not found* | Клонирование идёт не через `github-wh`: проверьте `DEPLOY_REPO` и `ssh -T github-wh` (шаг 5). |
-| `npm`: *Vite requires Node.js 20.19+* | Установлен Node 18 из Debian — поставьте Node 22 (шаг 2). |
 | `SQLSTATE[HY000] [2002]` / `[1045]` | Нет сети до 192.168.1.113:3310 или нет GRANT для IP веб-сервера (шаг 4). |
 | 500 без текста | Смотрите `shared/storage/logs/laravel-*.log`. Часто — права на `shared/storage` или пустой `APP_KEY`. |
 | 419 Page Expired при входе | `APP_URL` не совпадает с адресом в браузере или нет HTTPS при `SESSION_SECURE_COOKIE=true`. |
 | Стили не грузятся, белая страница | Не собран фронтенд (`public/build` пуст) — повторите выкладку, посмотрите вывод `npm run build`. |
 | 404 на всех страницах, кроме главной | В nginx нет `try_files $uri $uri/ /index.php?$query_string;` (шаг 3, п. 4). |
 | Фото не загружаются (413) | `client_max_body_size 20m` в nginx и `upload_max_filesize`/`post_max_size` в PHP. |
-| Изменения в `.env` не применились | После правки `.env`: `cd current && php artisan optimize:clear && php artisan optimize && php artisan queue:restart`. |
+| Изменения в `.env` не применились | После правки `.env`: `./artisan optimize:clear && ./artisan optimize && ./artisan queue:restart`. |
 
 ---
 
