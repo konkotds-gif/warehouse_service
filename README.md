@@ -53,6 +53,8 @@ php artisan serve
 
 ## Выкладка на сервер (Debian 12 + ispmanager 6)
 
+Подробная пошаговая инструкция — [docs/INSTALL.md](docs/INSTALL.md).
+
 1. Создать сайт и БД в ispmanager, PHP 8.4, корень — `/var/www/sklad/data/app/current/public`
    (фрагмент nginx — `deploy/nginx-sklad.conf`).
 2. Положить `.env` в `/var/www/sklad/data/app/shared/.env` (`APP_ENV=production`, `APP_DEBUG=false`, DB_*, `APP_URL`).
