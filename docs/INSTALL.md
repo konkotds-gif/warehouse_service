@@ -30,14 +30,21 @@ Debian 12 + ispmanager 6 · домен **wh.diskimira.com** · PHP 8.4 · MariaD
 export SITE_USER=1c8
 export BASE=/var/www/$SITE_USER/data/www/wh.diskimira.com
 export BRANCH=claude/project-thread-a2b3r2
-export PATH=/opt/php84/bin:$PATH      # PHP 8.4 из ispmanager — первым в PATH (важно для composer)
+export PATH=$BASE/bin:$PATH           # php = 8.4 только в этой сессии (см. шаг 1)
 ```
+
+> На сервере уже работает другой Laravel-проект на PHP 8.2 и системный composer.
+> Их **не трогаем**: системный `php` остаётся 8.2, `update-alternatives` не меняем.
+> Наш проект получает PHP 8.4 через собственную папку `$BASE/bin` (симлинк `php` → PHP 8.4),
+> которая добавляется в `PATH` только в командах этого проекта.
+> Папка `wh.diskimira.com` должна быть пустой (или содержать только заглушку ispmanager) — другой проект в неё не кладите.
 
 Итоговая структура каталогов:
 
 ```
 /var/www/1c8/data/www/wh.diskimira.com/
 ├── deploy.sh
+├── bin/php -> PHP 8.4        ← PHP только для этого проекта
 ├── shared/
 │   ├── .env                  ← настройки и пароли (один на все релизы)
 │   └── storage/              ← логи, сессии, фото комплектов
@@ -49,33 +56,44 @@ export PATH=/opt/php84/bin:$PATH      # PHP 8.4 из ispmanager — первым
 
 ---
 
-## 1. PHP 8.4 через ispmanager
+## 1. PHP 8.4 через ispmanager (рядом с 8.2)
 
-На сервере сейчас PHP 8.2, приложению нужен 8.3+ (рекомендуется 8.4).
+Системный PHP на сервере — 8.2 (им пользуется другой проект). Нашему приложению нужен 8.3+, ставим 8.4 **дополнительно**.
 
 1. ispmanager → **Настройки → Конфигурация ПО** (Software configuration) → **PHP** →
-   установить альтернативную версию **PHP 8.4** (ставится в `/opt/php84/`).
+   установить альтернативную версию **PHP 8.4** (обычно ставится в `/opt/php84/`).
 2. Там же, в свойствах PHP 8.4 → **Расширения**, включите:
    `mbstring`, `pdo_mysql` (mysqlnd), `fileinfo`, `dom`/`xml`, `tokenizer`, `ctype`, `iconv`,
    `openssl`, `curl`, `zip`, `bcmath`, `intl`, `opcache`.
-3. Проверка по SSH:
+3. Найдите бинарник PHP 8.4 и сделайте на него симлинк в папке проекта (под пользователем `1c8`):
 
    ```bash
-   /opt/php84/bin/php -v
-   /opt/php84/bin/php -m | grep -Ei 'pdo_mysql|mbstring|fileinfo|dom|zip|intl|opcache'
+   ls /opt/php84/bin/php /usr/bin/php8.4 2>/dev/null     # какой из путей существует
+   PHP84=/opt/php84/bin/php                              # или /usr/bin/php8.4 — что нашлось
+
+   mkdir -p $BASE/bin
+   ln -sfn $PHP84 $BASE/bin/php
+
+   $BASE/bin/php -v      # PHP 8.4.x
+   $BASE/bin/php -m | grep -Ei 'pdo_mysql|mbstring|fileinfo|dom|zip|intl|opcache'
    ```
 
-> Если ispmanager положил PHP 8.4 в другой каталог — найдите его: `ls /opt | grep php`,
-> и замените `/opt/php84/bin` во всех командах этой инструкции.
+4. Проверьте, что composer подхватывает 8.4 через наш `PATH` (системный при этом не меняется):
+
+   ```bash
+   export PATH=$BASE/bin:$PATH
+   composer -V            # «PHP version 8.4.x (…/wh.diskimira.com/bin/php)»
+   ```
+
+   В новой SSH-сессии без этого `export` composer снова будет на 8.2 — так и должно быть
+   для другого проекта.
 
 ## 2. Системные пакеты (под root)
 
 ```bash
 apt update
 apt install -y git unzip curl supervisor mariadb-client
-
-# Composer (глобально)
-curl -sS https://getcomposer.org/installer | /opt/php84/bin/php -- --install-dir=/usr/local/bin --filename=composer
+# Composer уже установлен (2.8.x) — переустанавливать не нужно.
 
 # Node.js 22 — нужен для сборки интерфейса (Vite 8 требует Node 20.19+; в Debian 12 только 18)
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -217,7 +235,7 @@ chmod 600 $BASE/shared/.env
 
 ```bash
 cd $BASE
-DEPLOY_BASE=$BASE PHP_BIN=/opt/php84/bin/php ./deploy.sh $BRANCH
+PATH=$BASE/bin:$PATH DEPLOY_BASE=$BASE PHP_BIN=$BASE/bin/php ./deploy.sh $BRANCH
 ```
 
 Скрипт сам: клонирует код в `releases/<дата>`, подключает `shared/.env` и `shared/storage`,
@@ -280,7 +298,7 @@ php artisan storage:import /путь/к/файлу.csv
 ispmanager → **Планировщик (CRON)** → создать задачу от пользователя `1c8`, **каждую минуту** (`* * * * *`):
 
 ```bash
-cd /var/www/1c8/data/www/wh.diskimira.com/current && /opt/php84/bin/php artisan schedule:run >> /dev/null 2>&1
+cd /var/www/1c8/data/www/wh.diskimira.com/current && /var/www/1c8/data/www/wh.diskimira.com/bin/php artisan schedule:run >> /dev/null 2>&1
 ```
 
 Он запускает: пометку просроченных договоров (02:00), проверку неподтверждённых событий 1С
@@ -293,7 +311,7 @@ cd /var/www/1c8/data/www/wh.diskimira.com/current && /opt/php84/bin/php artisan 
 
 ```ini
 [program:wh-worker]
-command=/opt/php84/bin/php /var/www/1c8/data/www/wh.diskimira.com/current/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+command=/var/www/1c8/data/www/wh.diskimira.com/bin/php /var/www/1c8/data/www/wh.diskimira.com/current/artisan queue:work --sleep=3 --tries=3 --max-time=3600
 user=1c8
 numprocs=1
 autostart=true
@@ -310,7 +328,7 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 `deploy.sh` после каждой выкладки делает `queue:restart` — воркер сам перезапустится на новом коде.
 
 > Нет возможности поставить supervisor — временно добавьте в cron ещё одну задачу «каждую минуту»:
-> `cd …/current && /opt/php84/bin/php artisan queue:work --stop-when-empty --max-time=55 >> /dev/null 2>&1`
+> `cd …/current && …/wh.diskimira.com/bin/php artisan queue:work --stop-when-empty --max-time=55 >> /dev/null 2>&1`
 
 ## 11. Проверка после установки
 
@@ -334,13 +352,13 @@ supervisorctl reread && supervisorctl update && supervisorctl status wh-worker  
 ```bash
 su - 1c8
 cd /var/www/1c8/data/www/wh.diskimira.com
-PATH=/opt/php84/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=/opt/php84/bin/php ./deploy.sh claude/project-thread-a2b3r2
+PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh claude/project-thread-a2b3r2
 ```
 
 Откат на предыдущий релиз:
 
 ```bash
-PATH=/opt/php84/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=/opt/php84/bin/php ./deploy.sh --rollback
+PATH=$PWD/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=$PWD/bin/php ./deploy.sh --rollback
 ```
 
 > Откат возвращает код, но **не откатывает миграции БД**. Перед обновлением, меняющим схему,
@@ -354,7 +372,8 @@ PATH=/opt/php84/bin:$PATH DEPLOY_BASE=$PWD PHP_BIN=/opt/php84/bin/php ./deploy.s
 
 | Симптом | Причина и решение |
 |---|---|
-| `composer`: *requires php ^8.3* | composer запущен системным PHP 8.2. Выполните `export PATH=/opt/php84/bin:$PATH`. |
+| `composer`: *requires php ^8.3* | composer запущен системным PHP 8.2. Выполните `export PATH=$BASE/bin:$PATH` (шаг 1). Системный PHP не меняйте — на нём другой проект. |
+| `php artisan …`: *Composer detected issues in your platform… PHP >= 8.3* | В этой SSH-сессии не выполнен `export PATH=$BASE/bin:$PATH` — `php` указывает на системный 8.2. |
 | `npm`: *Vite requires Node.js 20.19+* | Установлен Node 18 из Debian — поставьте Node 22 (шаг 2). |
 | `SQLSTATE[HY000] [2002]` / `[1045]` | Нет сети до 192.168.1.113:3310 или нет GRANT для IP веб-сервера (шаг 4). |
 | 500 без текста | Смотрите `shared/storage/logs/laravel-*.log`. Часто — права на `shared/storage` или пустой `APP_KEY`. |
