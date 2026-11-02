@@ -1,3 +1,4 @@
 # Планировщик Laravel (ispmanager → Планировщик CRON, под пользователем сайта).
+# artisan — обёртка, которую создаёт deploy.sh (нужный PHP + текущий релиз).
 # Задачи: storage:mark-overdue (02:00), onec:check-outbox (каждые 10 мин), onec:prune-inbox (ежедневно).
-* * * * * cd /var/www/sklad/data/app/current && /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+* * * * * /var/www/sklad/data/app/artisan schedule:run >> /dev/null 2>&1
