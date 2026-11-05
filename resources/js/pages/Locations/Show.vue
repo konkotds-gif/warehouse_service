@@ -4,12 +4,14 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import PageHeader from '../../Components/PageHeader.vue';
 import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
+import Icon from '../../Components/Icon.vue';
 import { can } from '../../lib/format';
 
-const props = defineProps({ location: Object, rows: Array, buffer: Array });
+const props = defineProps({ location: Object, rows: Array, buffer: Array, others: { type: Array, default: () => [] } });
 const gen = useForm({ row_from: (props.rows.length ? Number(props.rows.at(-1).row_no) + 1 : 1), row_to: (props.rows.length ? Number(props.rows.at(-1).row_no) + 1 : 1), cells: 20, cell_from: 1, capacity: 1 });
 const showGen = ref(false);
-const edit = useForm({ code: props.location.code, name: props.location.name, type: props.location.type, address: props.location.address, is_active: props.location.is_active });
+const edit = useForm({ code: props.location.code, name: props.location.name, type: props.location.type, address: props.location.address, is_active: props.location.is_active,
+    same_building: (props.location.same_building || []).map((l) => l.id) });
 const showEdit = ref(false);
 const cell = ref(null);
 const cellForm = useForm({ capacity: 1, is_blocked: false });
@@ -29,6 +31,14 @@ function openCell(c) {
         <button v-if="location.type === 'warehouse' && can('admin')" class="btn-primary" @click="showGen = true">Добавить ряды и ячейки</button>
         <button v-if="can('admin')" class="btn-ghost" @click="showEdit = true">Изменить</button>
     </PageHeader>
+
+    <div v-if="location.same_building?.length" class="card border-blue-600 p-4 mb-4 flex flex-wrap items-center gap-3">
+        <span class="icon-tile"><Icon name="issue" /></span>
+        <div class="flex-1 min-w-[14rem]">
+            <div class="font-bold">Одно здание с: <Link v-for="m in location.same_building" :key="m.id" :href="`/locations/${m.id}`" class="text-blue-600 mr-2">{{ m.label }}</Link></div>
+            <div class="text-sm text-ink-500">Заказ к выдаче между этими точками проводится сразу, без водителя и ведомости: перемещение создаётся и принимается автоматически, кладовщику ставится задание «Выдать клиенту» — снять колёса с полки.</div>
+        </div>
+    </div>
 
     <div v-if="location.type === 'warehouse'" class="grid gap-4">
         <div v-for="r in rows" :key="r.id" class="card p-4">
@@ -87,6 +97,14 @@ function openCell(c) {
             <div><label class="label">Название</label><input v-model="edit.name" class="input" /></div>
             <div><label class="label">Адрес</label><input v-model="edit.address" class="input" /></div>
             <label class="flex gap-2 text-sm"><input type="checkbox" v-model="edit.is_active" class="accent-blue-600" /> Действует</label>
+            <div>
+                <label class="label">В одном здании с</label>
+                <p class="text-xs text-ink-500 mb-2">Отметьте склад или магазин под одной крышей с этой точкой. Колёса между ними не возит водитель — при заказе к выдаче перемещение проводится сразу, а кладовщик получает задание снять колёса с полки и выдать клиенту.</p>
+                <div class="grid gap-1 max-h-48 overflow-y-auto">
+                    <label v-for="o in others" :key="o.id" class="flex gap-2 text-sm"><input type="checkbox" :value="o.id" v-model="edit.same_building" class="accent-blue-600" /> {{ o.label }} <span class="text-ink-500">· {{ o.type_label }}</span></label>
+                </div>
+                <div class="error" v-if="edit.errors.same_building">{{ edit.errors.same_building }}</div>
+            </div>
             <button class="btn-primary" @click="edit.put(`/locations/${location.id}`, { onSuccess: () => (showEdit = false) })">Сохранить</button>
         </div>
     </Modal>

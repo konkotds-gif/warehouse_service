@@ -25,6 +25,10 @@ const reprint = reactive({ show: false, set: null, copies: 1 });
 // Заказ к выдаче
 const order = useForm({ store_id: user.value.location?.type === 'store' ? user.value.location.id : props.stores[0]?.id, date: today(1) });
 const orderSet = ref(null);
+const orderSameBuilding = computed(() => {
+    const st = props.stores.find((x) => x.id === order.store_id);
+    return !!(st?.building && orderSet.value?.building && st.building === orderSet.value.building);
+});
 const submitOrder = () => order.post(`/sets/${orderSet.value.id}/order`, { preserveScroll: true, onSuccess: () => (orderSet.value = null) });
 
 // Выдача
@@ -216,13 +220,14 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <div v-if="s.brand_model || s.notes" class="text-sm text-ink-500">{{ s.brand_model }} {{ s.notes }}</div>
                 <div v-if="s.damages_labels?.length" class="text-sm text-amber-700">Повреждения: {{ s.damages_labels.join(', ') }}</div>
                 <div v-if="s.issue_store" class="mt-2 text-sm"><Icon name="issue" :size="14" class="inline" /> Выдача в <b>{{ s.issue_store }}</b> на {{ d(s.issue_due_date) }}</div>
+                <div v-if="s.whereabouts?.building" class="mt-1 text-sm" :class="s.whereabouts.building.on_shelf ? 'text-amber-700' : 'text-green-700'">{{ s.whereabouts.building.note }}</div>
                 <div v-if="s.photos?.length" class="mt-3 flex gap-2 overflow-x-auto">
                     <a v-for="p in s.photos" :key="p.id" :href="p.url" target="_blank"><img :src="p.url" class="h-20 w-20 rounded-[10px] object-cover border border-line" /></a>
                 </div>
                 <div class="mt-4 flex flex-wrap gap-2">
                     <button v-if="s.status === 'ready' && can('issue')" class="btn-primary" @click="openIssue(s)">Выдать →</button>
                     <button v-if="['placed', 'received', 'accepted'].includes(s.status) && can('order-issue')" class="btn-blue" @click="orderSet = s">Заказать к выдаче</button>
-                    <button v-if="s.status === 'ordered' && can('order-issue')" class="btn-secondary" @click="router.post(`/sets/${s.id}/cancel-order`, {}, { preserveScroll: true })">Отменить заказ</button>
+                    <button v-if="(s.status === 'ordered' || (s.status === 'ready' && s.whereabouts?.building)) && can('order-issue')" class="btn-secondary" @click="router.post(`/sets/${s.id}/cancel-order`, {}, { preserveScroll: true })">Отменить заказ</button>
                     <button v-if="can('print') && !['issued', 'disposed'].includes(s.status)" class="btn-secondary" @click="reprint.set = s; reprint.copies = 1; reprint.show = true">Перепечатать бирку</button>
                     <label v-if="can('accept') && !['issued', 'disposed'].includes(s.status)" class="btn-ghost cursor-pointer"><Icon name="camera" :size="18" /> Фото
                         <input type="file" accept="image/*" capture="environment" multiple class="hidden" @change="uploadPhotos(s, $event)" /></label>
@@ -314,7 +319,9 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
     </div>
 
     <Modal :show="!!orderSet" title="Заказ к выдаче" @close="orderSet = null">
-        <p class="text-sm text-ink-500 mb-4">Комплект {{ orderSet?.qr_code }} ({{ orderSet?.address }}). Склад получит задание «отобрать» со сроком на день раньше.</p>
+        <p class="text-sm text-ink-500 mb-4">Комплект {{ orderSet?.qr_code }} ({{ orderSet?.address }}).
+            <template v-if="orderSameBuilding">Склад и магазин в одном здании: перемещение проведётся сразу, без водителя, комплект станет «Готов к выдаче», а кладовщик получит задание снять колёса с полки и выдать клиенту.</template>
+            <template v-else>Склад получит задание «отобрать» со сроком на день раньше.</template></p>
         <label class="label">Магазин выдачи</label>
         <select v-model="order.store_id" class="input"><option v-for="s in stores" :key="s.id" :value="s.id">{{ s.code }} · {{ s.name }}</option></select>
         <label class="label mt-3">Дата визита клиента</label>

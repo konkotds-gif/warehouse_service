@@ -69,6 +69,7 @@ class ContractController extends Controller
             'contract' => array_merge(Present::contract($contract, true), [
                 'sets' => $contract->sets->map(fn (WheelSet $s) => Present::set($s) + [
                     'whereabouts' => $whereabouts[$s->id] ?? null,
+                    'building' => $s->location?->building,
                     'photos' => $s->photos->map(fn ($p) => ['id' => $p->id, 'url' => route('photos.show', $p)])->all(),
                 ])->all(),
             ]),
@@ -96,7 +97,7 @@ class ContractController extends Controller
             'movements' => $movements->map(fn ($m) => Present::movement($m))->all(),
             'prints' => $prints->map(fn ($p) => ['copies' => $p->copies, 'reason' => $p->reason, 'format' => $p->format,
                 'at' => $p->printed_at->toIso8601String(), 'user' => $p->user?->name, 'qr_code' => $contract->sets->firstWhere('id', $p->wheel_set_id)?->qr_code])->all(),
-            'stores' => Location::active()->stores()->orderBy('code')->get(['id', 'code', 'name']),
+            'stores' => Location::active()->stores()->orderBy('code')->get(['id', 'code', 'name', 'building']),
             'otherGarage' => $otherGarage,
             'autoPrint' => $request->boolean('print'),
             'confirmation' => $confirmationStatus,

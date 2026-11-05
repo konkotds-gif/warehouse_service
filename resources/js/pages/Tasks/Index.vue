@@ -6,7 +6,7 @@ import LocationPicker from '../../Components/LocationPicker.vue';
 import { d, can } from '../../lib/format';
 
 const props = defineProps({ tasks: Object, location: Object, locations: Array, filters: Object });
-const types = { '': 'Все', place: 'Разместить', pick: 'Отобрать', discrepancy: 'Расхождения', inventory: 'Инвентаризация' };
+const types = { '': 'Все', place: 'Разместить', pick: 'Отобрать', issue_client: 'Выдать клиенту', discrepancy: 'Расхождения', inventory: 'Инвентаризация' };
 const go = (patch) => router.get('/tasks', { ...props.filters, ...patch, location: props.location?.id }, { preserveState: true });
 </script>
 
@@ -37,7 +37,8 @@ const go = (patch) => router.get('/tasks', { ...props.filters, ...patch, locatio
             <Link v-if="t.type === 'inventory' && t.payload?.inventory_id" :href="`/inventories/${t.payload.inventory_id}`" class="btn-blue !min-h-9">Открыть</Link>
             <Link v-if="t.type === 'pick' && t.payload?.transfer_id" :href="`/transfers/${t.payload.transfer_id}`" class="btn-blue !min-h-9">Перемещение {{ t.payload.transfer_number }} →</Link>
             <Link v-else-if="t.type === 'pick'" href="/transfers/create" class="btn-blue !min-h-9">Сформировать рейс</Link>
-            <button v-if="t.status === 'open'" class="btn-secondary !min-h-9" @click="router.post(`/tasks/${t.id}/done`, {}, { preserveScroll: true })">Выполнено</button>
+            <button v-if="t.status === 'open' && t.type === 'issue_client'" class="btn-blue !min-h-9" @click="router.post(`/tasks/${t.id}/done`, {}, { preserveScroll: true })">Снято с полки</button>
+            <button v-else-if="t.status === 'open'" class="btn-secondary !min-h-9" @click="router.post(`/tasks/${t.id}/done`, {}, { preserveScroll: true })">Выполнено</button>
         </div>
         <div v-if="!tasks.data.length" class="card p-8 text-center text-ink-500">Заданий нет</div>
     </div>

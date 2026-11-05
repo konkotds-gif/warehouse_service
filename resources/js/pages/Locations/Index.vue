@@ -23,6 +23,7 @@ const form = useForm({ code: '', name: '', type: 'warehouse', address: '', is_ac
             </div>
             <div class="font-semibold mt-1">{{ l.name }}</div>
             <div class="text-sm text-ink-500">{{ l.address }}</div>
+            <div v-if="l.same_building?.length" class="mt-2"><span class="badge badge-blue">Одно здание с {{ l.same_building.join(', ') }}</span></div>
             <div v-if="l.type === 'warehouse'" class="mt-3">
                 <div class="flex justify-between text-sm"><span>Занято</span><span class="tabular">{{ l.occupied }} / {{ l.capacity }}</span></div>
                 <div class="mt-1 h-2 rounded-full bg-line overflow-hidden"><div class="h-full bg-blue-600" :style="{ width: (l.capacity ? Math.min(100, (l.occupied / l.capacity) * 100) : 0) + '%' }"></div></div>

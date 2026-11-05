@@ -21,16 +21,24 @@ class SetController extends Controller
         $data = $request->validate(['store_id' => ['required', 'integer'], 'date' => ['required', 'date']]);
         $set = $service->order($set, Location::findOrFail($data['store_id']), $data['date'], $request->user());
 
+        if ($set->status->value === 'ready' && ($task = IssueService::openClientTask($set))) {
+            return back()->with('success', "Склад и магазин в одном здании: комплект сразу перемещён в {$task->payload['store_code']} без водителя"
+                ." ({$task->payload['transfer_number']}), кладовщику — задание снять колёса с полки {$task->payload['shelf']} и выдать клиенту");
+        }
+
         return back()->with('success', $set->status->value === 'ready'
             ? 'Комплект уже в этом магазине — готов к выдаче'
             : 'Заказ к выдаче создан: комплект добавлен в перемещение в магазин (Задания → Перевозки), складу — задание «отобрать»');
     }
 
-    public function cancelOrder(WheelSet $set, IssueService $service): RedirectResponse
+    public function cancelOrder(Request $request, WheelSet $set, IssueService $service): RedirectResponse
     {
-        $service->cancelOrder($set);
+        $wasReady = $set->status->value === 'ready';
+        $set = $service->cancelOrder($set, $request->user());
 
-        return back()->with('success', 'Заказ к выдаче отменён');
+        return back()->with('success', $wasReady
+            ? 'Заказ к выдаче отменён: колёса возвращены на склад того же здания ('.$set->currentAddress().')'
+            : 'Заказ к выдаче отменён');
     }
 
     public function issue(Request $request, WheelSet $set, IssueService $service): JsonResponse|RedirectResponse

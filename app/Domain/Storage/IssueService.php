@@ -6,11 +6,13 @@ use App\Domain\Integration\OneC\Outbox;
 use App\Domain\Notifications\Sms;
 use App\Domain\Support\DomainError;
 use App\Domain\Transfer\TransferService;
+use App\Domain\Warehouse\PlacementService;
 use App\Domain\Warehouse\TaskStatus;
 use App\Domain\Warehouse\TaskType;
 use App\Models\Location;
 use App\Models\StorageContract;
 use App\Models\Task;
+use App\Models\Transfer;
 use App\Models\User;
 use App\Models\WheelSet;
 use Carbon\CarbonInterface;
@@ -57,6 +59,10 @@ final class IssueService
                 // Комплект уже в буфере магазина выдачи
                 $this->mover->transition($set, SetStatus::Ready, 'ready');
                 $this->sms->setReady($set);
+            } elseif ($set->location?->sameBuildingAs($store) && ! $this->transfers->isInOpenTransfer($set)) {
+                // Склад и магазин в одном здании: без водителя — перемещение проводится сразу,
+                // кладовщику — задание снять колёса с полки и выдать клиенту
+                $this->orderWithinBuilding($set, $store, $date, $user);
             } elseif (! $this->transfers->enqueueForIssue($set->fresh(), $store, $user)) {
                 // Комплект уже едет другим перемещением — отдельное задание на отбор
                 $due = $date->copy()->subDay();
@@ -75,10 +81,66 @@ final class IssueService
         });
     }
 
-    public function cancelOrder(WheelSet $set): WheelSet
+    /**
+     * Заказ в магазин того же здания: перемещение склад → буфер магазина проводится сразу (без рейса и ведомости),
+     * комплект «Готов к выдаче», а кладовщику ставится задание «Выдать клиенту» — снять колёса с полки.
+     */
+    private function orderWithinBuilding(WheelSet $set, Location $store, CarbonInterface $date, ?User $user): void
     {
-        return DB::transaction(function () use ($set) {
+        $from = $set->location;
+        $cell = $set->cell;
+        $shelf = $set->currentAddress();
+        $transfer = $this->transfers->moveWithinBuilding($set, $store, SetStatus::Ready, 'issue', $user, null, 'ready');
+        $set = $set->fresh();
+        $due = $date->copy()->lt(now()->startOfDay()) ? now()->startOfDay() : $date->copy();
+        Task::create([
+            'type' => TaskType::IssueToClient,
+            'wheel_set_id' => $set->id,
+            'location_id' => $from->id,
+            'due_date' => $due->toDateString(),
+            'status' => TaskStatus::Open,
+            'title' => sprintf('Выдать клиенту %s (%d шт, %s): снять с полки %s → зона выдачи %s, на %s',
+                $set->qr_code, $set->qty, $set->tire_size, $shelf, $store->code, $date->format('d.m.Y')),
+            'payload' => [
+                'transfer_id' => $transfer->id,
+                'transfer_number' => $transfer->number,
+                'from_location_id' => $from->id,
+                'shelf' => $shelf,
+                'cell_id' => $cell?->id,
+                'store_code' => $store->code,
+                'sets' => [[
+                    'id' => $set->id, 'qr_code' => $set->qr_code, 'address' => $shelf, 'contract_id' => $set->contract_id,
+                    'qty' => $set->qty, 'tire_size' => $set->tire_size, 'issue_due_date' => $date->toDateString(),
+                ]],
+            ],
+            'created_by' => $user?->id,
+        ]);
+        $this->sms->setReady($set);
+    }
+
+    /** Открытое задание кладовщику «Выдать клиенту» по комплекту (заказ в магазин того же здания). */
+    public static function openClientTask(WheelSet $set): ?Task
+    {
+        return Task::where('wheel_set_id', $set->id)->where('type', TaskType::IssueToClient->value)
+            ->where('status', TaskStatus::Open->value)->latest('id')->first();
+    }
+
+    /** Последнее перемещение «к выдаче» внутри здания, которым комплект попал в текущую точку. */
+    public static function buildingIssueTransfer(WheelSet $set): ?Transfer
+    {
+        return Transfer::where('same_building', true)->where('purpose', 'issue')
+            ->where('to_location_id', $set->current_location_id)
+            ->whereHas('lines', fn ($q) => $q->where('wheel_set_id', $set->id))
+            ->latest('received_at')->first();
+    }
+
+    public function cancelOrder(WheelSet $set, ?User $user = null): WheelSet
+    {
+        return DB::transaction(function () use ($set, $user) {
             $set = $this->mover->lock($set);
+            if ($set->status === SetStatus::Ready && $set->issue_store_id !== null && ($back = self::buildingIssueTransfer($set))) {
+                return $this->cancelWithinBuilding($set, $back, $user);
+            }
             if ($set->status !== SetStatus::Ordered) {
                 throw new DomainError('Комплект не заказан к выдаче');
             }
@@ -95,6 +157,41 @@ final class IssueService
 
             return $set->fresh();
         });
+    }
+
+    /**
+     * Отмена заказа, проведённого внутри здания: колёса возвращаются на склад тем же способом — без водителя.
+     * Если кладовщик ещё не снял их с полки (задание открыто) и ячейка свободна — комплект снова «Размещён»
+     * в своей ячейке, иначе — «На складе, не размещён» с заданием «Разместить».
+     */
+    private function cancelWithinBuilding(WheelSet $set, Transfer $came, ?User $user): WheelSet
+    {
+        $task = self::openClientTask($set);
+        $from = Location::findOrFail($came->from_location_id);
+        $cell = null;
+        if ($task && ($cellId = $task->payload['cell_id'] ?? null)) {
+            $cell = app(PlacementService::class)->freeCells($from->id)->whereKey($cellId)->first();
+        }
+        $status = match (true) {
+            $cell !== null => SetStatus::Placed,
+            $from->isWarehouse() => SetStatus::Received,
+            default => SetStatus::Accepted,
+        };
+        $this->transfers->moveWithinBuilding($set, $from, $status, $from->isWarehouse() ? 'storage' : 'relocation', $user,
+            $cell?->id, 'order_cancel', ['issue_store_id' => null, 'issue_due_date' => null]);
+        Task::where('wheel_set_id', $set->id)->whereIn('type', [TaskType::IssueToClient->value, TaskType::Pick->value])
+            ->where('status', TaskStatus::Open->value)
+            ->update(['status' => TaskStatus::Cancelled->value, 'completed_at' => now()]);
+        if ($status === SetStatus::Received) {
+            Task::create([
+                'type' => TaskType::Place, 'wheel_set_id' => $set->id, 'location_id' => $from->id,
+                'due_date' => now()->toDateString(), 'status' => TaskStatus::Open,
+                'title' => "Разместить {$set->qr_code} ({$set->tire_size}, {$set->qty} шт) — выдача отменена",
+                'created_by' => $user?->id,
+            ]);
+        }
+
+        return $set->fresh();
     }
 
     /**
@@ -148,7 +245,7 @@ final class IssueService
             if ($set->status !== SetStatus::Ready) {
                 throw new DomainError("Выдать можно только комплект «Готов к выдаче» (сейчас: «{$set->status->label()}»)");
             }
-            if ($user && ! $user->isAdmin() && $user->location_id && $user->location_id !== $set->current_location_id) {
+            if ($user && ! self::userAtLocation($user, $set->location)) {
                 throw new DomainError('Комплект готов к выдаче в другом магазине: '.$set->location?->label());
             }
             $scanned = $this->resolver->sets($scannedCode)->pluck('id');
@@ -177,7 +274,7 @@ final class IssueService
                 'current_location_id' => null,
                 'transfer_id' => null,
             ], ['qty' => $qty ?? $set->qty]);
-            $this->mover->closeTasks($set, TaskType::PrepareIssue, TaskType::Pick);
+            $this->mover->closeTasks($set, TaskType::PrepareIssue, TaskType::Pick, TaskType::IssueToClient);
 
             if ($set->garageSet) {
                 $set->garageSet->update(['state' => GarageSetState::OnVehicle, 'last_issued_at' => now()]);
@@ -204,6 +301,16 @@ final class IssueService
 
             return $set->fresh();
         });
+    }
+
+    /** Сотрудник работает в этой точке (или в точке того же здания); администратор и сотрудник без точки — везде. */
+    public static function userAtLocation(User $user, ?Location $location): bool
+    {
+        if ($user->isAdmin() || ! $user->location_id || ! $location) {
+            return true;
+        }
+
+        return $user->location_id === $location->id || $location->sameBuildingAs($user->location);
     }
 
     /** Списание/утилизация (руководитель/администратор). */

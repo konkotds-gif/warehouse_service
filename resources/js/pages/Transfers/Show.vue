@@ -46,7 +46,8 @@ const badge = { created: 'badge-ink', shipped: 'badge-blue', received: 'badge-gr
     <Head :title="`Перемещение ${transfer.number}`" />
     <div class="mb-6">
         <div class="eyebrow mb-1">Перемещение</div>
-        <h1 class="text-3xl tabular">{{ t.number }} <span class="badge align-middle" :class="badge[t.status]">{{ t.status_label }}</span></h1>
+        <h1 class="text-3xl tabular">{{ t.number }} <span class="badge align-middle" :class="badge[t.status]">{{ t.status_label }}</span>
+            <span v-if="t.same_building" class="badge badge-ink align-middle" title="Склад и магазин в одном здании — проведено сразу, без водителя">одно здание · без водителя</span></h1>
         <p class="text-ink-500 mt-1">{{ t.from.label }} → {{ t.to.label }}<template v-if="t.driver"> · {{ t.driver }}</template></p>
         <p class="text-sm text-ink-500">Создано {{ dt(t.created_at) }} · отгружено {{ dt(t.shipped_at) }} · принято {{ dt(t.received_at) }}</p>
         <p v-if="t.notes" class="text-sm text-ink-500">{{ t.notes }}</p>

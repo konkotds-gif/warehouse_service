@@ -13,6 +13,8 @@ use App\Models\StorageCell;
 use App\Models\WheelSet;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -29,8 +31,9 @@ class LocationController extends Controller
             ->selectRaw('current_location_id, count(*) c')->groupBy('current_location_id')->pluck('c', 'current_location_id');
 
         return Inertia::render('Locations/Index', [
-            'locations' => Location::withCount('cells')->withSum('cells', 'capacity')->orderBy('type')->orderBy('code')->get()
+            'locations' => ($all = Location::withCount('cells')->withSum('cells', 'capacity')->orderBy('type')->orderBy('code')->get())
                 ->map(fn ($l) => Present::location($l) + [
+                    'same_building' => $l->building ? $all->where('building', $l->building)->where('id', '!=', $l->id)->pluck('code')->values()->all() : [],
                     'cells_count' => $l->cells_count,
                     'capacity' => (int) $l->cells_sum_capacity,
                     'occupied' => (int) ($occupied[$l->id] ?? 0),
@@ -42,14 +45,23 @@ class LocationController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $this->validated($request);
+        $mates = $data['same_building'] ?? [];
+        unset($data['same_building']);
         $location = Location::create($data);
+        $this->syncBuilding($location, $mates);
 
         return redirect()->route('locations.show', $location)->with('success', 'Локация создана');
     }
 
     public function update(Request $request, Location $location): RedirectResponse
     {
-        $location->update($this->validated($request, $location));
+        $data = $this->validated($request, $location);
+        $mates = $data['same_building'] ?? null;
+        unset($data['same_building']);
+        $location->update($data);
+        if ($mates !== null) {
+            $this->syncBuilding($location, $mates);
+        }
 
         return back()->with('success', 'Локация сохранена');
     }
@@ -61,7 +73,11 @@ class LocationController extends Controller
             ->whereIn('status', StorageCell::OCCUPYING_STATUSES)->whereNotNull('current_cell_id')->get()->groupBy('current_cell_id');
 
         return Inertia::render('Locations/Show', [
-            'location' => Present::location($location),
+            'location' => Present::location($location) + [
+                'same_building' => $location->buildingMates()->map(fn ($l) => ['id' => $l->id, 'code' => $l->code, 'label' => $l->label()])->values()->all(),
+            ],
+            'others' => Location::whereKeyNot($location->id)->orderBy('type')->orderBy('code')->get()
+                ->map(fn ($l) => ['id' => $l->id, 'label' => $l->label(), 'type_label' => $l->type->label()])->all(),
             'rows' => $location->rows->map(fn ($r) => [
                 'id' => $r->id, 'row_no' => $r->row_no, 'title' => $r->title,
                 'cells' => $r->cells->map(fn ($c) => [
@@ -115,6 +131,35 @@ class LocationController extends Controller
         ]);
     }
 
+    /**
+     * Склад и магазин в одном здании: у точек одного здания общий ключ building.
+     * Отмеченные точки переводятся в здание этой точки; снятые отметки — исключают точку из здания
+     * (если в здании остаётся одна точка, признак снимается).
+     *
+     * @param  list<int>  $mateIds
+     */
+    private function syncBuilding(Location $location, array $mateIds): void
+    {
+        $mateIds = array_values(array_diff(array_map('intval', $mateIds), [$location->id]));
+        DB::transaction(function () use ($location, $mateIds) {
+            $old = $location->building;
+            if ($mateIds === []) {
+                $location->update(['building' => null]);
+            } else {
+                $key = $old ?? 'B'.$location->id.'-'.Str::lower(Str::random(6));
+                $location->update(['building' => $key]);
+                // Точки, которые были в другом здании, переходят в это
+                Location::whereIn('id', $mateIds)->update(['building' => $key]);
+                Location::where('building', $key)->whereNotIn('id', [...$mateIds, $location->id])->update(['building' => null]);
+            }
+            // Здание, где осталась одна точка, — уже не «одно здание»
+            $keys = Location::whereNotNull('building')->select('building')->groupBy('building')->havingRaw('count(*) < 2')->pluck('building');
+            if ($keys->isNotEmpty()) {
+                Location::whereIn('building', $keys)->update(['building' => null]);
+            }
+        });
+    }
+
     private function validated(Request $request, ?Location $location = null): array
     {
         $data = $request->validate([
@@ -123,6 +168,9 @@ class LocationController extends Controller
             'type' => ['required', Rule::enum(LocationType::class)],
             'address' => ['nullable', 'string', 'max:255'],
             'is_active' => ['boolean'],
+            // Точки в одном здании с этой (склад и магазин под одной крышей — выдача без водителя)
+            'same_building' => ['sometimes', 'array'],
+            'same_building.*' => ['integer', 'exists:locations,id'],
         ]);
         if ($data['type'] === 'warehouse' && ! preg_match('/^\d{2}$/', $data['code'])) {
             throw ValidationException::withMessages(['code' => 'Код склада — две цифры (XX в адресе), например 02']);

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Domain\Warehouse\Indicators;
 use App\Domain\Warehouse\TaskStatus;
+use App\Domain\Warehouse\TaskType;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Task;
@@ -22,7 +23,10 @@ class TaskController extends Controller
         $location = $this->currentLocation($request);
         $status = $request->query('status', 'open');
         $tasks = Task::with(['wheelSet.cell', 'wheelSet.location', 'wheelSet.transfer', 'location', 'assignee'])
-            ->when($location, fn ($q) => $q->where('location_id', $location->id))
+            ->when($location, fn ($q) => $q->where(fn ($q) => $q->where('location_id', $location->id)
+                // Склад и магазин в одном здании: задания «Выдать клиенту» видны в обеих точках
+                ->orWhere(fn ($q) => $q->where('type', TaskType::IssueToClient->value)
+                    ->whereIn('location_id', $location->buildingMates()->pluck('id')))))
             ->where('status', $status)
             ->when($request->query('type'), fn ($q, $t) => $q->where('type', $t))
             ->orderBy('due_date')->orderBy('id')->paginate(50)->withQueryString();
