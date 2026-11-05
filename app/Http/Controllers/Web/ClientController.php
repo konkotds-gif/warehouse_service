@@ -79,36 +79,13 @@ class ClientController extends Controller
 
     public function storeVehicle(Request $request, Client $client): RedirectResponse
     {
-        $data = $this->vehicleData($request);
+        $data = VehicleController::validated($request);
         if ($data['plate'] && $client->vehicles()->where('plate', Normalizer::plate($data['plate']))->exists()) {
             throw DomainError::invalid('Такой госномер у клиента уже есть', 'plate');
         }
         $client->vehicles()->create($data);
 
         return back()->with('success', 'Автомобиль добавлен');
-    }
-
-    public function updateVehicle(Request $request, Vehicle $vehicle): RedirectResponse
-    {
-        $vehicle->update($this->vehicleData($request));
-
-        return back()->with('success', 'Автомобиль сохранён');
-    }
-
-    /** Госномер обязателен, кроме нового автомобиля без номеров (no_plate). */
-    private function vehicleData(Request $request): array
-    {
-        $data = $request->validate([
-            'no_plate' => ['nullable', 'boolean'],
-            'plate' => ['required_unless:no_plate,true,1', 'nullable', 'string', 'max:16'],
-            'make' => ['required', 'string', 'max:64'], 'model' => ['required', 'string', 'max:64'],
-        ], ['plate.required_unless' => 'Укажите госномер или отметьте «Без номеров»']);
-        if ($request->boolean('no_plate')) {
-            $data['plate'] = null;
-        }
-        unset($data['no_plate']);
-
-        return $data;
     }
 
     public function updateGarageSet(Request $request, GarageSet $garageSet): RedirectResponse

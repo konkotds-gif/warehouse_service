@@ -49,7 +49,8 @@ class WebTest extends TestCase
 
         $pages = [
             '/' => 'Dashboard', '/search?q=Иванов' => 'Search', '/clients' => 'Clients/Index',
-            '/clients/'.$contract->client_id => 'Clients/Show', '/accept' => 'Accept/Wizard',
+            '/clients/'.$contract->client_id => 'Clients/Show', '/vehicles' => 'Vehicles/Index',
+            '/vehicles/'.$contract->vehicle_id => 'Vehicles/Show', '/accept' => 'Accept/Wizard',
             '/accept?client='.$contract->client_id => 'Accept/Wizard', '/contracts' => 'Contracts/Index',
             '/contracts/'.$contract->id => 'Contracts/Show', '/scan/place' => 'Scan/Place', '/scan/issue' => 'Scan/Issue',
             '/transfers' => 'Transfers/Index', '/transfers/create?from='.$store->id => 'Transfers/Create',

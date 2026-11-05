@@ -219,7 +219,8 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <Link v-if="contract.client" :href="`/clients/${contract.client.id}`" class="text-lg font-bold text-blue-600">{{ contract.client.full_name }}</Link>
                 <div class="tabular">{{ phone(contract.client?.phone) }}</div>
                 <div class="mt-3 text-sm text-ink-500">Автомобиль</div>
-                <div class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
+                <Link v-if="contract.vehicle && can('clients')" :href="`/vehicles/${contract.vehicle.id}`" class="font-semibold text-blue-600">{{ contract.vehicle.title }}</Link>
+                <div v-else class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
                 <div v-if="confirmation?.confirmed_at" class="mt-3 text-sm text-green-700 flex gap-2"><Icon name="check" :size="16" class="flex-none mt-0.5" />
                     <span>Подтверждён кодом из SMS {{ dt(confirmation.confirmed_at) }} · <span class="tabular">{{ phone(confirmation.confirmed_phone) }}</span><template v-if="confirmation.confirmed_by"> · {{ confirmation.confirmed_by }}</template></span></div>
                 <div v-else-if="confirmation?.log.length" class="mt-3 text-sm text-amber-700">Не подтверждён кодом из SMS</div>

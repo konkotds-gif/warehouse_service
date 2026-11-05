@@ -102,7 +102,8 @@ final class Present
 
     public static function vehicle(Vehicle $v): array
     {
-        return ['id' => $v->id, 'plate' => $v->plate, 'make' => $v->make, 'model' => $v->model, 'title' => $v->title()];
+        return ['id' => $v->id, 'client_id' => $v->client_id, 'plate' => $v->plate, 'vin' => $v->vin, 'make' => $v->make, 'model' => $v->model,
+            'year' => $v->year, 'color' => $v->color, 'notes' => $v->notes, 'title' => $v->title()];
     }
 
     public static function client(Client $c): array
