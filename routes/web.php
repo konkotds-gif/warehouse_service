@@ -64,6 +64,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/contracts', [ContractController::class, 'index'])->middleware('can:search')->name('contracts.index');
     Route::get('/contracts/{contract}', [ContractController::class, 'show'])->middleware('can:search')->name('contracts.show');
     Route::post('/contracts/{contract}/extend', [ContractController::class, 'extend'])->middleware('can:accept')->name('contracts.extend');
+    Route::get('/contracts/{contract}/extensions/{extension}/print', [ContractController::class, 'extensionPrint'])->middleware('can:search')->name('contracts.extension.print');
     Route::post('/contracts/{contract}/tags', [ContractController::class, 'tags'])->middleware('can:print')->name('contracts.tags');
     Route::post('/contracts/{contract}/tags.zpl', [ContractController::class, 'zpl'])->middleware('can:print')->name('contracts.zpl');
     Route::get('/contracts/{contract}/receipt', [ContractController::class, 'receiptPage'])->middleware('can:print')->name('contracts.receipt');

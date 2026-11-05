@@ -42,6 +42,12 @@ final class NumberGenerator
         return $this->next('transfer', 5, 'П');
     }
 
+    /** Документ пролонгации договора: ПР00001. */
+    public function extensionNumber(): string
+    {
+        return $this->next('extension', 5, 'ПР');
+    }
+
     public function tripNumber(): string
     {
         return $this->next('trip', 5, 'Р');

@@ -41,7 +41,7 @@ abstract class ApiController extends Controller
 
     protected function contractData(StorageContract $k): array
     {
-        $k->loadMissing(['sets.cell', 'sets.location', 'sets.transfer', 'vehicle', 'store', 'client', 'tariff']);
+        $k->loadMissing(['sets.cell', 'sets.location', 'sets.transfer', 'vehicle', 'store', 'client', 'tariff', 'extensions']);
         $outbox = app(Outbox::class);
 
         return [
@@ -60,6 +60,7 @@ abstract class ApiController extends Controller
             'debt' => (float) $k->debt,
             'onec_doc_guid' => $k->onec_doc_guid,
             'sets' => $k->sets->map(fn (WheelSet $s) => $outbox->setPayload($s))->all(),
+            'extensions' => $k->extensions->map(fn ($e) => $outbox->extensionPayload($e) + ['onec_doc_guid' => $e->onec_doc_guid])->values()->all(),
         ];
     }
 
