@@ -6,10 +6,12 @@ use App\Models\WheelSet;
 use Illuminate\Support\Facades\Log;
 
 /**
- * SMS клиентам (этап 4). Драйвер по умолчанию — запись в лог; подключение шлюза — в send().
+ * SMS клиентам. Если в «Настройках» указан SMSC — отправка через него, иначе драйвер из .env (SMS_DRIVER=log — запись в лог).
  */
 class Sms
 {
+    public function __construct(private readonly SmscGateway $smsc) {}
+
     public function setReady(WheelSet $set): void
     {
         $client = $set->contract?->client;
@@ -24,18 +26,29 @@ class Sms
         ));
     }
 
-    public function send(string $phone, string $text): void
+    /** Через SMSC или в лог. */
+    public function driver(): string
     {
-        $driver = config('storage.sms_driver', 'log');
+        return $this->smsc->configured() ? 'smsc' : (string) config('storage.sms_driver', 'log');
+    }
+
+    /** @return array{ok: bool, id: ?string, error: ?string} */
+    public function send(string $phone, string $text): array
+    {
         if (app()->bound('sms.sent')) {
             app('sms.sent')->push(['phone' => $phone, 'text' => $text]);
+        }
+        $driver = $this->driver();
+        if ($driver === 'smsc') {
+            return $this->smsc->send($phone, $text);
         }
         if ($driver === 'log') {
             Log::info('SMS', ['phone' => $phone, 'text' => $text]);
 
-            return;
+            return ['ok' => true, 'id' => null, 'error' => null];
         }
-        // Место для подключения SMS-шлюза (sms.ru, SMSC и т.п.) по SMS_API_KEY.
         Log::warning('SMS driver not configured', ['driver' => $driver]);
+
+        return ['ok' => false, 'id' => null, 'error' => 'SMS-шлюз не настроен'];
     }
 }

@@ -12,7 +12,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
-/** Настройки платформы: справочник марок и моделей авто, вход через Active Directory. */
+/** Настройки платформы: справочник марок и моделей авто, SMS (SMSC), вход через Active Directory. */
 class SettingsController extends Controller
 {
     public function index(CarCatalogSync $sync): Response
@@ -35,6 +35,7 @@ class SettingsController extends Controller
             ],
             'scheduler_last_run_at' => Setting::get('scheduler.last_run_at'),
             'ldap' => LdapSettingsController::props(),
+            'sms' => SmsSettingsController::props(),
         ]);
     }
 

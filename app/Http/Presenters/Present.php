@@ -82,6 +82,7 @@ final class Present
             'debt' => (float) $c->debt,
             'debt_updated_at' => $c->debt_updated_at?->toIso8601String(),
             'onec_doc_guid' => $c->onec_doc_guid,
+            'sms_confirmed_at' => $c->sms_confirmed_at?->toIso8601String(),
             'sets' => $c->relationLoaded('sets') ? $c->sets->map(fn ($s) => self::set($s))->all() : [],
         ];
         if ($detail) {

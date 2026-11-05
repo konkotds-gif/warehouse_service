@@ -30,6 +30,14 @@ return [
 
     // Справочник марок и моделей авто (система записи). Обычно задаётся в «Настройки → Справочник авто»,
     // значения из .env используются, если в настройках пусто.
+    // SMS-шлюз SMSC (smsc.ru). Главнее — настройки в разделе «Настройки» платформы.
+    'smsc' => [
+        'url' => env('SMSC_API_URL', 'https://smsc.ru/sys'),
+        'login' => env('SMSC_LOGIN'),
+        'password' => env('SMSC_PASSWORD'),
+        'sender' => env('SMSC_SENDER'),
+    ],
+
     'car_catalog' => [
         'url' => env('CAR_CATALOG_API_URL'),
         'key' => env('CAR_CATALOG_API_KEY'),

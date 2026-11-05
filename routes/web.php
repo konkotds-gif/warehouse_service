@@ -4,6 +4,7 @@ use App\Http\Controllers\Web\AcceptController;
 use App\Http\Controllers\Web\Admin\IntegrationController;
 use App\Http\Controllers\Web\Admin\LdapSettingsController;
 use App\Http\Controllers\Web\Admin\SettingsController;
+use App\Http\Controllers\Web\Admin\SmsSettingsController;
 use App\Http\Controllers\Web\Admin\TariffController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\AuthController;
@@ -63,6 +64,8 @@ Route::middleware('auth')->group(function () {
     // Договоры и комплекты
     Route::get('/contracts', [ContractController::class, 'index'])->middleware('can:search')->name('contracts.index');
     Route::get('/contracts/{contract}', [ContractController::class, 'show'])->middleware('can:search')->name('contracts.show');
+    Route::post('/contracts/{contract}/sms-code', [ContractController::class, 'sendCode'])->middleware(['can:accept', 'throttle:10,1'])->name('contracts.sms-code');
+    Route::post('/contracts/{contract}/confirm', [ContractController::class, 'confirm'])->middleware(['can:accept', 'throttle:20,1'])->name('contracts.confirm');
     Route::post('/contracts/{contract}/extend', [ContractController::class, 'extend'])->middleware('can:accept')->name('contracts.extend');
     Route::get('/contracts/{contract}/extensions/{extension}/print', [ContractController::class, 'extensionPrint'])->middleware('can:search')->name('contracts.extension.print');
     Route::post('/contracts/{contract}/tags', [ContractController::class, 'tags'])->middleware('can:print')->name('contracts.tags');
@@ -153,6 +156,8 @@ Route::middleware('auth')->group(function () {
         Route::put('/admin/settings/cars', [SettingsController::class, 'updateCars'])->name('admin.settings.cars');
         Route::post('/admin/settings/cars/test', [SettingsController::class, 'testCars'])->name('admin.settings.cars.test');
         Route::post('/admin/settings/cars/sync', [SettingsController::class, 'syncCars'])->name('admin.settings.cars.sync');
+        Route::put('/admin/settings/sms', [SmsSettingsController::class, 'update'])->name('admin.settings.sms');
+        Route::post('/admin/settings/sms/test', [SmsSettingsController::class, 'test'])->middleware('throttle:10,1')->name('admin.settings.sms.test');
         Route::put('/admin/settings/ldap', [LdapSettingsController::class, 'update'])->name('admin.settings.ldap');
         Route::post('/admin/settings/ldap/test', [LdapSettingsController::class, 'test'])->name('admin.settings.ldap.test');
         Route::post('/admin/settings/ldap/test-user', [LdapSettingsController::class, 'testUser'])->middleware('throttle:20,1')->name('admin.settings.ldap.test-user');

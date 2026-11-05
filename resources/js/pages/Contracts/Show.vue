@@ -6,7 +6,7 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { d, dt, money, phone, today, can } from '../../lib/format';
 
-const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean });
+const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean, confirmation: Object });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
 
@@ -59,6 +59,28 @@ const submitExtend = () => extend.post(`/contracts/${props.contract.id}/extend`,
 });
 const extensionPrintUrl = (e) => `/contracts/${props.contract.id}/extensions/${e.id}/print`;
 
+// Подтверждение договора кодом из SMS
+const confirmForm = useForm({ code: '' });
+const sending = ref(false);
+const resendIn = ref(props.confirmation?.resend_in || 0);
+let resendTimer = null;
+function tickResend(sec) {
+    resendIn.value = sec;
+    clearInterval(resendTimer);
+    resendTimer = setInterval(() => (resendIn.value > 0 ? resendIn.value-- : clearInterval(resendTimer)), 1000);
+}
+if (resendIn.value > 0) tickResend(resendIn.value);
+const needsConfirm = computed(() => props.confirmation?.enabled && !props.confirmation.confirmed_at && props.contract.status !== 'closed');
+function sendCode() {
+    sending.value = true;
+    router.post(`/contracts/${props.contract.id}/sms-code`, {}, {
+        preserveScroll: true,
+        onSuccess: () => tickResend(props.confirmation.resend_in),
+        onFinish: () => (sending.value = false),
+    });
+}
+const submitConfirm = () => confirmForm.post(`/contracts/${props.contract.id}/confirm`, { preserveScroll: true, onSuccess: () => confirmForm.reset() });
+
 // Списание
 const dispose = useForm({ reason: '' });
 const disposeSet = ref(null);
@@ -100,6 +122,27 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
         <span class="icon-tile"><Icon name="printer" /></span>
         <div class="flex-1"><div class="font-bold text-lg">Напечатайте бирки: {{ totalWheels }} шт.</div><div class="text-ink-500 text-sm">На всех бирках одинаковый QR с номером договора. Наклейте по одной на каждое колесо.</div></div>
         <button class="btn-primary btn-lg" @click="doPrint({ receipt: 1 })">Печать бирок и квитанции →</button>
+    </div>
+
+    <div v-if="needsConfirm && can('accept')" class="card border-amber-500 p-5 mb-6">
+        <div class="flex flex-wrap items-start gap-4">
+            <span class="icon-tile"><Icon name="alert" /></span>
+            <div class="flex-1 min-w-[14rem]">
+                <div class="font-bold text-lg">Подтвердите договор кодом из SMS</div>
+                <div class="text-ink-500 text-sm" v-if="!confirmation.phone">У клиента не указан телефон — добавьте его в карточке клиента и отправьте код.</div>
+                <div class="text-ink-500 text-sm" v-else-if="confirmation.last_sent_at">Код отправлен на <b class="tabular">{{ phone(confirmation.phone) }}</b> в {{ dt(confirmation.last_sent_at) }}<template v-if="confirmation.expires_at">, действует до {{ dt(confirmation.expires_at) }}</template>. Попросите клиента назвать код.</div>
+                <div class="text-ink-500 text-sm" v-else>Код ещё не отправлен на <b class="tabular">{{ phone(confirmation.phone) }}</b>.</div>
+            </div>
+        </div>
+        <div v-if="confirmation.phone" class="mt-4 flex flex-wrap gap-2 items-start">
+            <input v-model="confirmForm.code" class="input input-lg tabular w-40 text-center tracking-[0.4em]" inputmode="numeric" autocomplete="one-time-code"
+                :maxlength="confirmation.code_length" :placeholder="'•'.repeat(confirmation.code_length)" @keyup.enter="submitConfirm" />
+            <button class="btn-primary btn-lg" :disabled="confirmForm.processing || confirmForm.code.length < confirmation.code_length" @click="submitConfirm">Подтвердить</button>
+            <button class="btn-secondary btn-lg" :disabled="sending || resendIn > 0" @click="sendCode">
+                {{ sending ? 'Отправляем…' : resendIn > 0 ? `Отправить снова через ${resendIn} с` : confirmation.last_sent_at ? 'Отправить код повторно' : 'Отправить код' }}</button>
+        </div>
+        <div v-if="confirmForm.errors.code || confirmForm.errors.domain" class="error">{{ confirmForm.errors.code || confirmForm.errors.domain }}</div>
+        <div v-if="confirmation.log.some((l) => l.error)" class="mt-3 text-sm text-red-600">Последняя ошибка отправки: {{ confirmation.log.find((l) => l.error).error }}</div>
     </div>
 
     <div class="grid gap-6 lg:grid-cols-3">
@@ -177,6 +220,9 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <div class="tabular">{{ phone(contract.client?.phone) }}</div>
                 <div class="mt-3 text-sm text-ink-500">Автомобиль</div>
                 <div class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
+                <div v-if="confirmation?.confirmed_at" class="mt-3 text-sm text-green-700 flex gap-2"><Icon name="check" :size="16" class="flex-none mt-0.5" />
+                    <span>Подтверждён кодом из SMS {{ dt(confirmation.confirmed_at) }} · <span class="tabular">{{ phone(confirmation.confirmed_phone) }}</span><template v-if="confirmation.confirmed_by"> · {{ confirmation.confirmed_by }}</template></span></div>
+                <div v-else-if="confirmation?.log.length" class="mt-3 text-sm text-amber-700">Не подтверждён кодом из SMS</div>
             </div>
             <div class="card p-5" :class="debt.blocked ? 'border-red-600' : ''">
                 <div class="flex justify-between"><span class="text-ink-500">Сумма за хранение</span><b>{{ money(contract.amount) }}</b></div>

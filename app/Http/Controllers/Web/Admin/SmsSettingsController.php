@@ -1,0 +1,81 @@
+<?php
+
+namespace App\Http\Controllers\Web\Admin;
+
+use App\Domain\Notifications\SmscGateway;
+use App\Domain\Storage\ContractConfirmation;
+use App\Http\Controllers\Controller;
+use App\Models\Setting;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+
+/** «Настройки → SMS (SMSC)»: подключение к smsc.ru и подтверждение договоров кодом из SMS. */
+class SmsSettingsController extends Controller
+{
+    public static function props(): array
+    {
+        $smsc = app(SmscGateway::class);
+        $password = $smsc->password();
+
+        return [
+            'login' => $smsc->login(),
+            'sender' => $smsc->sender(),
+            'password_set' => (bool) $password,
+            'from_env' => $password && ! Setting::getSecret(SmscGateway::PASSWORD),
+            'configured' => $smsc->configured(),
+            'confirm_contracts' => (bool) Setting::get(ContractConfirmation::ENABLED, true),
+            'confirm_text' => ContractConfirmation::text(),
+            'default_text' => ContractConfirmation::DEFAULT_TEXT,
+            'ttl_minutes' => ContractConfirmation::TTL_MINUTES,
+            'max_attempts' => ContractConfirmation::MAX_ATTEMPTS,
+        ];
+    }
+
+    public function update(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'login' => ['nullable', 'string', 'max:64'],
+            'password' => ['nullable', 'string', 'max:128'],
+            'remove_password' => ['nullable', 'boolean'],
+            'sender' => ['nullable', 'string', 'max:15'],
+            'confirm_contracts' => ['required', 'boolean'],
+            'confirm_text' => ['required', 'string', 'max:300', function ($attr, $value, $fail) {
+                if (! str_contains($value, '{code}')) {
+                    $fail('В тексте SMS должен быть {code} — на это место подставится код');
+                }
+            }],
+        ], ['sender.max' => 'Имя отправителя — до 11 букв или 15 цифр, как зарегистрировано в SMSC']);
+
+        Setting::put(SmscGateway::LOGIN, filled($data['login'] ?? null) ? trim($data['login']) : null);
+        Setting::put(SmscGateway::SENDER, filled($data['sender'] ?? null) ? trim($data['sender']) : null);
+        if ($request->boolean('remove_password')) {
+            Setting::putSecret(SmscGateway::PASSWORD, null);
+        } elseif (filled($data['password'] ?? null)) {
+            Setting::putSecret(SmscGateway::PASSWORD, $data['password']);
+        }
+        Setting::put(ContractConfirmation::ENABLED, (bool) $data['confirm_contracts']);
+        Setting::put(ContractConfirmation::TEXT, trim($data['confirm_text']) === ContractConfirmation::DEFAULT_TEXT ? null : trim($data['confirm_text']));
+
+        return back()->with('success', 'Настройки SMS сохранены');
+    }
+
+    /** Проверка: баланс SMSC, а если указан телефон — ещё и тестовое SMS. */
+    public function test(Request $request, SmscGateway $smsc): RedirectResponse
+    {
+        $data = $request->validate(['phone' => ['nullable', 'string', 'max:32']]);
+        $balance = $smsc->balance();
+        if (! $balance['ok']) {
+            return back()->with('error', $balance['error']);
+        }
+        $message = 'Подключение к SMSC работает, баланс: '.$balance['balance'].' '.($balance['currency'] ?? 'руб.');
+        if (filled($data['phone'] ?? null)) {
+            $sent = $smsc->send($data['phone'], 'Проверка SMS платформы хранения колёс. Диски Мира');
+            if (! $sent['ok']) {
+                return back()->with('error', $message.'. Тестовое SMS не отправлено: '.$sent['error']);
+            }
+            $message .= '. Тестовое SMS отправлено на '.$data['phone'];
+        }
+
+        return back()->with('success', $message);
+    }
+}

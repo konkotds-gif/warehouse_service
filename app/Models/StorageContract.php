@@ -16,7 +16,8 @@ class StorageContract extends Model
     use Audited, HasUuids, SoftDeletes;
 
     protected $fillable = ['number', 'client_id', 'vehicle_id', 'store_id', 'tariff_id', 'accepted_by', 'accepted_at',
-        'paid_until', 'storage_until', 'months', 'amount', 'overdue_fee', 'overdue_days', 'debt', 'debt_updated_at', 'status', 'onec_doc_guid', 'closed_at', 'notes'];
+        'paid_until', 'storage_until', 'months', 'amount', 'overdue_fee', 'overdue_days', 'debt', 'debt_updated_at', 'status', 'onec_doc_guid', 'closed_at', 'notes',
+        'sms_confirmed_at', 'sms_confirmed_phone', 'sms_confirmed_by'];
 
     protected function casts(): array
     {
@@ -26,6 +27,7 @@ class StorageContract extends Model
             'storage_until' => 'date',
             'debt_updated_at' => 'datetime',
             'closed_at' => 'datetime',
+            'sms_confirmed_at' => 'datetime',
             'amount' => 'decimal:2',
             'overdue_fee' => 'decimal:2',
             'overdue_days' => 'integer',
@@ -68,6 +70,16 @@ class StorageContract extends Model
     public function extensions(): HasMany
     {
         return $this->hasMany(ContractExtension::class, 'contract_id')->orderByDesc('seq');
+    }
+
+    public function smsCodes(): HasMany
+    {
+        return $this->hasMany(ContractSmsCode::class, 'contract_id')->latest('id');
+    }
+
+    public function smsConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sms_confirmed_by');
     }
 
     public function payments(): HasMany

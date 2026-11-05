@@ -29,7 +29,8 @@ const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-
             <tbody>
                 <tr v-for="c in contracts.data" :key="c.id">
                     <td><Link :href="`/contracts/${c.id}`" class="font-bold text-blue-600 tabular">{{ c.number }}</Link></td>
-                    <td><span class="badge" :class="statusBadge[c.status]">{{ c.status_label }}</span></td>
+                    <td><span class="badge" :class="statusBadge[c.status]">{{ c.status_label }}</span>
+                        <span v-if="c.sms_confirmed_at" class="ml-1 text-xs text-green-700 whitespace-nowrap" :title="`Подтверждён кодом из SMS ${d(c.sms_confirmed_at)}`">✓ SMS</span></td>
                     <td>{{ c.client?.full_name }}</td>
                     <td class="tabular">{{ c.vehicle?.plate }}</td>
                     <td><div v-for="s in c.sets" :key="s.id" class="flex gap-2 items-center mb-1"><StatusBadge :status="s.status" /><span class="tabular">{{ s.address }}</span></div></td>
