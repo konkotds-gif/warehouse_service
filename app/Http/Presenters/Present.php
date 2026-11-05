@@ -57,6 +57,8 @@ final class Present
             'garage_set_id' => $s->garage_set_id,
             'title' => $s->title(),
             'plate' => $s->contract?->vehicle?->plate,
+            'price' => $s->price !== null ? (float) $s->price : null,
+            'amount' => (float) $s->amount,
         ];
     }
 
@@ -73,7 +75,10 @@ final class Present
             'accepted_at' => $c->accepted_at?->toIso8601String(),
             'storage_until' => $c->storage_until?->toDateString(),
             'paid_until' => $c->paid_until?->toDateString(),
+            'months' => $c->months,
             'amount' => (float) $c->amount,
+            'overdue_fee' => (float) $c->overdue_fee,
+            'overdue_days' => (int) $c->overdue_days,
             'debt' => (float) $c->debt,
             'debt_updated_at' => $c->debt_updated_at?->toIso8601String(),
             'onec_doc_guid' => $c->onec_doc_guid,

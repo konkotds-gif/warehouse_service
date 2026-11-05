@@ -8,7 +8,6 @@ use App\Domain\Warehouse\CellGenerator;
 use App\Domain\Warehouse\LocationType;
 use App\Models\Location;
 use App\Models\StorageContract;
-use App\Models\Tariff;
 use App\Models\User;
 use App\Models\WheelSet;
 
@@ -30,11 +29,6 @@ trait Fixtures
     protected function user(Role $role = Role::Admin, ?Location $location = null): User
     {
         return User::factory()->role($role)->create(['location_id' => $location?->id]);
-    }
-
-    protected function tariff(): Tariff
-    {
-        return Tariff::create(['code' => 'ХР-СЕЗОН', 'name' => 'Хранение, сезон', 'price' => 4800, 'period' => 'season', 'months' => 6]);
     }
 
     protected function acceptData(Location $store, array $override = []): array

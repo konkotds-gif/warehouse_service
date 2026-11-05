@@ -31,7 +31,7 @@ final class Outbox
 
     public function contractPayload(StorageContract $contract): array
     {
-        $contract->loadMissing(['client', 'vehicle', 'store', 'tariff', 'sets.cell', 'sets.location', 'sets.transfer']);
+        $contract->loadMissing(['client', 'vehicle', 'store', 'tariff', 'sets.tariff', 'sets.cell', 'sets.location', 'sets.transfer']);
 
         return [
             'contract_number' => $contract->number,
@@ -52,6 +52,7 @@ final class Outbox
             'service_onec_guid' => $contract->tariff?->onec_guid,
             'accepted_at' => $contract->accepted_at?->toIso8601String(),
             'storage_until' => $contract->storage_until?->toDateString(),
+            'months' => $contract->months,
             'paid_until' => $contract->paid_until?->toDateString(),
             'amount' => (float) $contract->amount,
             'onec_doc_guid' => $contract->onec_doc_guid,
@@ -70,6 +71,11 @@ final class Outbox
             'season' => $set->season?->value,
             'status' => $set->status->value,
             'address' => $set->currentAddress(),
+            // Строка услуги для документа 1С: номенклатура по диаметру, цена за колесо в месяц
+            'service_code' => $set->tariff?->code,
+            'service_onec_guid' => $set->tariff?->onec_guid,
+            'price' => $set->price !== null ? (float) $set->price : null,
+            'amount' => (float) $set->amount,
         ];
     }
 

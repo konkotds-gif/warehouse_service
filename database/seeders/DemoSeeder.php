@@ -11,13 +11,12 @@ use App\Domain\Warehouse\LocationType;
 use App\Domain\Warehouse\PlacementService;
 use App\Models\Location;
 use App\Models\StorageContract;
-use App\Models\Tariff;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * Демо-данные: 2 магазина, 2 склада, тарифы, пользователи всех ролей и хранения в разных статусах.
+ * Демо-данные: 2 магазина, 2 склада, пользователи всех ролей и хранения в разных статусах.
  * Пароль всех демо-пользователей: password
  */
 class DemoSeeder extends Seeder
@@ -30,9 +29,6 @@ class DemoSeeder extends Seeder
         $w03 = Location::firstOrCreate(['code' => '03'], ['name' => 'Склад Южный', 'type' => LocationType::Warehouse, 'address' => 'Сургут, ул. Индустриальная']);
         app(CellGenerator::class)->generate($w02, 1, 6, 20);
         app(CellGenerator::class)->generate($w03, 1, 3, 15, 2);
-
-        $season = Tariff::firstOrCreate(['code' => 'ХР-СЕЗОН'], ['name' => 'Хранение комплекта, сезон (6 мес.)', 'price' => 4800, 'period' => 'season', 'months' => 6]);
-        Tariff::firstOrCreate(['code' => 'ХР-МЕС'], ['name' => 'Хранение комплекта, помесячно', 'price' => 900, 'period' => 'month', 'months' => 1]);
 
         $users = [
             ['admin', 'Администратор', Role::Admin, null],
@@ -62,7 +58,7 @@ class DemoSeeder extends Seeder
         $contracts = [];
         foreach ($people as [$name, $phone, $plate, $make, $model, $size, $rims, $s]) {
             $contracts[] = $accept->accept([
-                'store_id' => $m01->id, 'tariff_id' => $season->id,
+                'store_id' => $m01->id, 'months' => 6, // цена — по прайсу диаметров (миграция storage_pricing_by_diameter)
                 'client' => ['full_name' => $name, 'phone' => $phone, 'consent_sms' => true],
                 'vehicle' => ['plate' => $plate, 'make' => $make, 'model' => $model],
                 'sets' => [['qty' => 4, 'tire_size' => $size, 'with_rims' => $rims, 'condition' => 'used', 'season' => $s]],

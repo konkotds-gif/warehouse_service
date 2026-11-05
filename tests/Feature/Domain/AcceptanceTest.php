@@ -19,11 +19,10 @@ class AcceptanceTest extends TestCase
     public function test_accept_creates_contract_set_garage_movement_and_outbox(): void
     {
         $store = $this->store();
-        $tariff = $this->tariff();
-        $contract = $this->accept($store, ['tariff_id' => $tariff->id]);
+        $contract = $this->accept($store, ['months' => 6]);
 
         $this->assertSame('000001', $contract->number);
-        $this->assertEquals(4800, (float) $contract->amount);
+        $this->assertEquals(2880, (float) $contract->amount, 'R16: 120 ₽ × 4 колеса × 6 мес.');
         $set = $this->firstSet($contract);
         $this->assertSame('000001', $set->qr_code, 'QR = номер договора');
         $this->assertSame(SetStatus::Accepted, $set->status);

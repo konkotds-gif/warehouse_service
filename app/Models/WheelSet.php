@@ -18,7 +18,7 @@ class WheelSet extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['garage_set_id', 'contract_id', 'qr_code', 'qty', 'tire_size', 'with_rims', 'condition',
+    protected $fillable = ['garage_set_id', 'contract_id', 'tariff_id', 'price', 'amount', 'qr_code', 'qty', 'tire_size', 'with_rims', 'condition',
         'season', 'brand_model', 'damages', 'status', 'current_cell_id', 'current_location_id', 'transfer_id',
         'issue_store_id', 'issue_due_date', 'notes'];
 
@@ -28,11 +28,18 @@ class WheelSet extends Model
             'with_rims' => 'boolean',
             'damages' => 'array',
             'qty' => 'integer',
+            'price' => 'decimal:2',
+            'amount' => 'decimal:2',
             'condition' => Condition::class,
             'season' => Season::class,
             'status' => SetStatus::class,
             'issue_due_date' => 'date',
         ];
+    }
+
+    public function tariff(): BelongsTo
+    {
+        return $this->belongsTo(Tariff::class);
     }
 
     public function contract(): BelongsTo

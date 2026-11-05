@@ -15,13 +15,11 @@ use Illuminate\Support\Facades\DB;
  */
 final class ContractService
 {
-    public function __construct(private readonly Outbox $outbox) {}
+    public function __construct(private readonly Outbox $outbox, private readonly Pricing $pricing) {}
 
     public function extend(StorageContract $contract, int $months, ?User $user = null): StorageContract
     {
-        if ($months < 1 || $months > 24) {
-            throw DomainError::invalid('Продление — от 1 до 24 месяцев', 'months');
-        }
+        $this->pricing->validateMonths($months);
         if ($contract->status === ContractStatus::Closed) {
             throw new DomainError('Договор закрыт');
         }
@@ -29,15 +27,26 @@ final class ContractService
         return DB::transaction(function () use ($contract, $months) {
             $contract = StorageContract::whereKey($contract->id)->lockForUpdate()->firstOrFail();
             $base = $contract->storage_until && $contract->storage_until->isFuture() ? $contract->storage_until->copy() : now();
-            $tariff = $contract->tariff;
-            $extra = $tariff ? ($tariff->period === 'month' ? (float) $tariff->price * $months : (float) $tariff->price) : 0;
+            $lines = $this->pricing->extensionLines($contract, $months);
+            $extra = round(array_sum(array_column($lines, 'amount')), 2);
             $contract->update([
                 'storage_until' => $base->addMonthsNoOverflow($months)->toDateString(),
+                'months' => (int) $contract->months + $months,
                 'amount' => (float) $contract->amount + $extra,
                 'status' => $contract->status === ContractStatus::Overdue ? ContractStatus::Open : $contract->status,
             ]);
             $this->outbox->record('contract.extended', $this->outbox->contractPayload($contract) + [
                 'extended_months' => $months, 'extra_amount' => $extra,
+                'extension_lines' => array_map(fn ($l) => [
+                    'qr_code' => $l['set']->qr_code,
+                    'service_code' => $l['tariff']->code,
+                    'service_onec_guid' => $l['tariff']->onec_guid,
+                    'diameter' => $l['diameter'],
+                    'qty' => $l['qty'],
+                    'months' => $l['months'],
+                    'price' => $l['price'],
+                    'amount' => $l['amount'],
+                ], $lines),
             ]);
 
             return $contract;

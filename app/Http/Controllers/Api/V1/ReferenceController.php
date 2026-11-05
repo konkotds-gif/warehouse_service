@@ -46,7 +46,7 @@ class ReferenceController extends ApiController
         return $this->respond($this->clientData($client), $created ? 201 : 200, 'client');
     }
 
-    /** Услуга хранения: код, наименование, цена за сезон/месяц. */
+    /** Услуга хранения: код, наименование, цена (за колесо в месяц для строк прайса по диаметру). */
     public function service(Request $request, string $onecGuid): Response
     {
         $data = $request->validate([
@@ -55,6 +55,8 @@ class ReferenceController extends ApiController
             'price' => ['required', 'numeric', 'min:0'],
             'period' => ['nullable', 'in:season,month'],
             'months' => ['nullable', 'integer', 'min:1', 'max:24'],
+            'diameter_from' => ['nullable', 'integer', 'min:10', 'max:30'],
+            'diameter_to' => ['nullable', 'integer', 'min:10', 'max:30', 'gte:diameter_from'],
             'is_active' => ['nullable', 'boolean'],
         ]);
         $tariff = Tariff::where('onec_guid', $onecGuid)->first() ?? Tariff::where('code', $data['code'])->first();
@@ -68,11 +70,15 @@ class ReferenceController extends ApiController
             'period' => $data['period'] ?? $tariff->period ?? 'season',
             'months' => $data['months'] ?? $tariff->months ?? 6,
             'is_active' => $data['is_active'] ?? true,
+            // Диаметры задаются в «Тарифах»; 1С может передать их сама, иначе не трогаем
+            'diameter_from' => $data['diameter_from'] ?? $tariff->diameter_from,
+            'diameter_to' => $data['diameter_to'] ?? $data['diameter_from'] ?? $tariff->diameter_to,
         ])->save();
 
         return $this->respond([
             'id' => $tariff->id, 'onec_guid' => $tariff->onec_guid, 'code' => $tariff->code, 'name' => $tariff->name,
             'price' => (float) $tariff->price, 'period' => $tariff->period, 'months' => $tariff->months, 'is_active' => $tariff->is_active,
+            'diameter_from' => $tariff->diameter_from, 'diameter_to' => $tariff->diameter_to,
         ], $created ? 201 : 200, 'service');
     }
 

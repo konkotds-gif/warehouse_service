@@ -143,6 +143,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/admin/users/{user}', [UserController::class, 'update'])->name('admin.users.update');
         Route::get('/admin/tariffs', [TariffController::class, 'index'])->name('admin.tariffs');
         Route::post('/admin/tariffs', [TariffController::class, 'store'])->name('admin.tariffs.store');
+        Route::put('/admin/tariffs/pricing', [TariffController::class, 'updatePricing'])->name('admin.tariffs.pricing');
         Route::put('/admin/tariffs/{tariff}', [TariffController::class, 'update'])->name('admin.tariffs.update');
         Route::get('/admin/integration', [IntegrationController::class, 'index'])->name('admin.integration');
         Route::post('/admin/api-keys', [IntegrationController::class, 'storeKey'])->name('admin.keys.store');
