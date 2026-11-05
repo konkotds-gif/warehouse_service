@@ -14,6 +14,7 @@ const purpose = { storage: 'На хранение', issue: 'К выдаче', re
     <Head title="Перемещения" />
     <PageHeader eyebrow="Логистика" title="Перемещения" subtitle="Магазин ⇄ склад, склад ⇄ склад. Погрузка и приёмка по скану QR бирок.">
         <LocationPicker v-if="can('reports')" :locations="locations" :current="location" />
+        <Link href="/tasks/transport" class="btn-secondary">Перевозки</Link>
         <Link href="/transfers/create" class="btn-primary">Новое перемещение →</Link>
     </PageHeader>
     <div class="card overflow-x-auto">
@@ -22,7 +23,8 @@ const purpose = { storage: 'На хранение', issue: 'К выдаче', re
             <tbody>
                 <tr v-for="t in transfers.data" :key="t.id">
                     <td><Link :href="`/transfers/${t.id}`" class="font-bold text-blue-600 tabular">{{ t.number }}</Link></td>
-                    <td><span class="badge" :class="badge[t.status]">{{ t.status_label }}</span></td>
+                    <td><span class="badge" :class="badge[t.status]">{{ t.status_label }}</span>
+                        <Link v-if="t.trip" :href="`/trips/${t.trip.id}`" class="ml-1 text-xs text-blue-600 tabular">{{ t.trip.number }}</Link></td>
                     <td>{{ t.from.code }} → {{ t.to.code }}</td>
                     <td>{{ purpose[t.purpose] }}</td>
                     <td class="tabular">{{ t.lines_count }}</td>

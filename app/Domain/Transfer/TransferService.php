@@ -12,10 +12,12 @@ use App\Domain\Support\NumberGenerator;
 use App\Domain\Warehouse\TaskStatus;
 use App\Domain\Warehouse\TaskType;
 use App\Domain\Warehouse\TransferStatus;
+use App\Domain\Warehouse\TripStatus;
 use App\Models\Location;
 use App\Models\Task;
 use App\Models\Transfer;
 use App\Models\TransferLine;
+use App\Models\Trip;
 use App\Models\User;
 use App\Models\WheelSet;
 use Illuminate\Support\Collection;
@@ -84,22 +86,7 @@ final class TransferService
         }
 
         return DB::transaction(function () use ($from, $to, $setIds, $user, $driver, $purpose) {
-            $sets = WheelSet::whereIn('id', $setIds)->lockForUpdate()->get();
-            if ($sets->count() !== count(array_unique($setIds))) {
-                throw DomainError::notFound('Часть комплектов не найдена');
-            }
-            $busy = $this->openLines()->whereIn('wheel_set_id', $setIds)->pluck('wheel_set_id');
-            foreach ($sets as $set) {
-                if ($set->current_location_id !== $from->id) {
-                    throw new DomainError("Комплект {$set->qr_code} находится не в {$from->code}");
-                }
-                if (! in_array($set->status, self::SHIPPABLE, true)) {
-                    throw new DomainError("Комплект {$set->qr_code} в статусе «{$set->status->label()}» нельзя отправить");
-                }
-                if ($busy->contains($set->id)) {
-                    throw new DomainError("Комплект {$set->qr_code} уже включён в другое перемещение");
-                }
-            }
+            $sets = $this->lockShippable($from, $setIds);
             $purpose ??= $sets->every(fn ($s) => $s->status === SetStatus::Ordered && $s->issue_store_id === $to->id) ? 'issue'
                 : ($to->isWarehouse() ? 'storage' : 'relocation');
 
@@ -120,20 +107,97 @@ final class TransferService
         });
     }
 
+    /**
+     * Добавить комплекты (в т.ч. других договоров) в ещё не отгруженное перемещение.
+     *
+     * @param  list<string>  $setIds
+     */
+    public function addSets(Transfer $transfer, array $setIds): Transfer
+    {
+        if ($setIds === []) {
+            throw DomainError::invalid('Выберите комплекты для перемещения');
+        }
+
+        return DB::transaction(function () use ($transfer, $setIds) {
+            $transfer = $this->lockEditable($transfer);
+            $sets = $this->lockShippable($transfer->from, $setIds);
+            foreach ($sets as $set) {
+                $transfer->lines()->create(['wheel_set_id' => $set->id]);
+            }
+
+            return $transfer->fresh('lines.wheelSet');
+        });
+    }
+
+    /** Убрать комплект из неотгруженного перемещения (пустое перемещение отменяется). */
+    public function removeLine(Transfer $transfer, TransferLine $line): Transfer
+    {
+        return DB::transaction(function () use ($transfer, $line) {
+            $transfer = $this->lockEditable($transfer);
+            if ($line->transfer_id !== $transfer->id) {
+                throw DomainError::notFound('Строка не относится к перемещению');
+            }
+            $line->delete();
+            if (! $transfer->lines()->exists()) {
+                $transfer->update(['status' => TransferStatus::Cancelled, 'trip_id' => null]);
+            }
+
+            return $transfer->fresh('lines.wheelSet');
+        });
+    }
+
+    private function lockEditable(Transfer $transfer): Transfer
+    {
+        $transfer = Transfer::with(['from', 'trip'])->whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+        if ($transfer->status !== TransferStatus::Created) {
+            throw new DomainError('Перемещение уже отгружено или закрыто');
+        }
+
+        return $transfer;
+    }
+
+    /** @param list<string> $setIds */
+    private function lockShippable(Location $from, array $setIds): Collection
+    {
+        $sets = WheelSet::whereIn('id', $setIds)->lockForUpdate()->get();
+        if ($sets->count() !== count(array_unique($setIds))) {
+            throw DomainError::notFound('Часть комплектов не найдена');
+        }
+        $busy = $this->openLines()->whereIn('wheel_set_id', $setIds)->pluck('wheel_set_id');
+        foreach ($sets as $set) {
+            if ($set->current_location_id !== $from->id) {
+                throw new DomainError("Комплект {$set->qr_code} находится не в {$from->code}");
+            }
+            if (! in_array($set->status, self::SHIPPABLE, true)) {
+                throw new DomainError("Комплект {$set->qr_code} в статусе «{$set->status->label()}» нельзя отправить");
+            }
+            if ($busy->contains($set->id)) {
+                throw new DomainError("Комплект {$set->qr_code} уже включён в другое перемещение");
+            }
+        }
+
+        return $sets;
+    }
+
     /** Скан при погрузке. */
     public function scanOut(Transfer $transfer, string $code, ?int $qty = null): TransferLine
     {
-        return DB::transaction(function () use ($transfer, $code, $qty) {
-            $transfer = Transfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(fn () => $this->scanOutLine($this->findLine($transfer, $code), $qty));
+    }
+
+    /** Отметить строку погруженной (поиск строки по бирке — на вызывающей стороне). */
+    public function scanOutLine(TransferLine $line, ?int $qty = null): TransferLine
+    {
+        return DB::transaction(function () use ($line, $qty) {
+            $transfer = Transfer::whereKey($line->transfer_id)->lockForUpdate()->firstOrFail();
             if ($transfer->status !== TransferStatus::Created) {
                 throw new DomainError('Перемещение уже отгружено или закрыто');
             }
-            $line = $this->findLine($transfer, $code);
             $set = $this->mover->lock($line->wheel_set_id);
             $this->mover->confirmQty($set, $qty, "Погрузка {$transfer->number}");
             $line->update(['scanned_out' => true, 'qty_out' => $qty ?? $set->qty]);
 
-            return $line->fresh('wheelSet');
+            return $line->fresh(['wheelSet', 'transfer']);
         });
     }
 
@@ -175,12 +239,16 @@ final class TransferService
     /** Скан при приёмке: комплект сразу получает статус в пункте назначения. */
     public function scanIn(Transfer $transfer, string $code, ?int $qty = null): TransferLine
     {
-        return DB::transaction(function () use ($transfer, $code, $qty) {
-            $transfer = Transfer::with('to')->whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(fn () => $this->scanInLine($this->findLine($transfer, $code), $qty));
+    }
+
+    public function scanInLine(TransferLine $line, ?int $qty = null): TransferLine
+    {
+        return DB::transaction(function () use ($line, $qty) {
+            $transfer = Transfer::with('to')->whereKey($line->transfer_id)->lockForUpdate()->firstOrFail();
             if (! in_array($transfer->status, [TransferStatus::Shipped, TransferStatus::Discrepancy], true)) {
                 throw new DomainError('Перемещение не в пути');
             }
-            $line = $this->findLine($transfer, $code);
             if ($line->scanned_in) {
                 throw new DomainError('Комплект уже принят');
             }
@@ -219,9 +287,10 @@ final class TransferService
                 if ($wasShipped) {
                     $this->outbox->record('transfer.completed', $this->outbox->transferPayload($transfer->fresh()));
                 }
+                $this->refreshTrip($transfer);
             }
 
-            return $line->fresh('wheelSet');
+            return $line->fresh(['wheelSet', 'transfer']);
         });
     }
 
@@ -247,6 +316,7 @@ final class TransferService
                 ]);
             }
             $this->outbox->record('transfer.completed', $this->outbox->transferPayload($transfer->fresh()));
+            $this->refreshTrip($transfer);
 
             return $transfer->fresh('lines.wheelSet');
         });
@@ -257,12 +327,29 @@ final class TransferService
         if ($transfer->status !== TransferStatus::Created) {
             throw new DomainError('Отменить можно только неотгруженное перемещение');
         }
-        $transfer->update(['status' => TransferStatus::Cancelled]);
+        $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null]);
+        $transfer->update(['status' => TransferStatus::Cancelled, 'trip_id' => null]);
 
         return $transfer;
     }
 
-    private function findLine(Transfer $transfer, string $code): TransferLine
+    /** Ведомость закрывается, когда по всем её перемещениям завершена приёмка. */
+    public function refreshTrip(Transfer $transfer): void
+    {
+        if (! $transfer->trip_id) {
+            return;
+        }
+        $trip = Trip::whereKey($transfer->trip_id)->lockForUpdate()->first();
+        if ($trip?->status !== TripStatus::Shipped) {
+            return;
+        }
+        $open = $trip->transfers()->whereIn('status', [TransferStatus::Created->value, TransferStatus::Shipped->value])->exists();
+        if (! $open) {
+            $trip->update(['status' => TripStatus::Done, 'completed_at' => now()]);
+        }
+    }
+
+    public function findLine(Transfer $transfer, string $code): TransferLine
     {
         $setIds = $this->resolver->sets($code)->pluck('id');
         if ($setIds->isEmpty()) {

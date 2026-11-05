@@ -20,6 +20,7 @@ use App\Http\Controllers\Web\SearchController;
 use App\Http\Controllers\Web\SetController;
 use App\Http\Controllers\Web\TaskController;
 use App\Http\Controllers\Web\TransferController;
+use App\Http\Controllers\Web\TripController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->name('health');
@@ -86,7 +87,25 @@ Route::middleware('auth')->group(function () {
         Route::post('/transfers', [TransferController::class, 'store'])->name('transfers.store');
         Route::get('/transfers/{transfer}', [TransferController::class, 'show'])->name('transfers.show');
         Route::post('/transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
+        Route::post('/transfers/{transfer}/sets', [TransferController::class, 'addSets'])->name('transfers.sets');
+        Route::delete('/transfers/{transfer}/lines/{line}', [TransferController::class, 'removeLine'])->name('transfers.lines.remove');
+        Route::get('/transfers/{transfer}/print', [TripController::class, 'printTransfer'])->name('transfers.print');
+
+        // Пул перевозок и ведомости заданий на перевозку
+        Route::get('/tasks/transport', [TripController::class, 'index'])->name('trips.index');
+        Route::post('/trips', [TripController::class, 'store'])->name('trips.store');
+        Route::get('/trips/{trip}', [TripController::class, 'show'])->name('trips.show');
+        Route::put('/trips/{trip}', [TripController::class, 'update'])->name('trips.update');
+        Route::post('/trips/{trip}/transfers', [TripController::class, 'addTransfers'])->name('trips.transfers.add');
+        Route::delete('/trips/{trip}/transfers/{transfer}', [TripController::class, 'detach'])->name('trips.transfers.detach');
+        Route::post('/trips/{trip}/cancel', [TripController::class, 'cancel'])->name('trips.cancel');
+        Route::get('/trips/{trip}/print', [TripController::class, 'print'])->name('trips.print');
     });
+    Route::post('/w/trips/{trip}/scan-out', [TripController::class, 'scanOut'])->middleware('can:ship-transfer')->name('trips.scan-out');
+    Route::post('/trips/{trip}/lines/{line}/unscan', [TripController::class, 'unscan'])->middleware('can:ship-transfer')->name('trips.unscan');
+    Route::post('/trips/{trip}/ship', [TripController::class, 'ship'])->middleware('can:ship-transfer')->name('trips.ship');
+    Route::post('/w/trips/{trip}/scan-in', [TripController::class, 'scanIn'])->middleware('can:receive-transfer')->name('trips.scan-in');
+    Route::post('/trips/{trip}/complete', [TripController::class, 'complete'])->middleware('can:receive-transfer')->name('trips.complete');
     Route::post('/w/transfers/{transfer}/scan-out', [TransferController::class, 'scanOut'])->middleware('can:ship-transfer')->name('transfers.scan-out');
     Route::post('/transfers/{transfer}/ship', [TransferController::class, 'ship'])->middleware('can:ship-transfer')->name('transfers.ship');
     Route::post('/w/transfers/{transfer}/scan-in', [TransferController::class, 'scanIn'])->middleware('can:receive-transfer')->name('transfers.scan-in');

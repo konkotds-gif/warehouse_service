@@ -41,4 +41,9 @@ final class NumberGenerator
     {
         return $this->next('transfer', 5, 'П');
     }
+
+    public function tripNumber(): string
+    {
+        return $this->next('trip', 5, 'Р');
+    }
 }

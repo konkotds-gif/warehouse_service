@@ -68,8 +68,8 @@
 
     .icon-tile { @apply flex h-12 w-12 items-center justify-center rounded-[12px] bg-blue-600 text-white; }
     .seg { @apply inline-flex rounded-[var(--radius-control)] border border-line bg-white p-1 gap-1; }
-    .seg button { @apply rounded-[10px] px-3 min-h-10 text-sm font-semibold text-ink-500; }
-    .seg button.on { @apply bg-blue-600 text-white; }
+    .seg button, .seg a { @apply rounded-[10px] px-3 min-h-10 text-sm font-semibold text-ink-500 inline-flex items-center; }
+    .seg button.on, .seg a.on { @apply bg-blue-600 text-white; }
 
     .hero-bg {
         background-color: var(--color-navy-900);

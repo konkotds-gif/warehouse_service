@@ -13,7 +13,7 @@ enum TransferStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Created => 'Создано',
+            self::Created => 'Ожидает погрузки',
             self::Shipped => 'В пути',
             self::Received => 'Принято',
             self::Discrepancy => 'Расхождение',
