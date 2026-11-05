@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Domain\Storage\Damage;
 use App\Domain\Storage\Season;
 use App\Domain\Storage\SetStatus;
+use App\Domain\Warehouse\Indicators;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -59,6 +60,8 @@ class HandleInertiaRequests extends Middleware
                 ],
                 'abilities' => $user->role->abilities(),
             ] : null,
+            // Счётчики актуальной работы по роли и точке пользователя (шапка, меню, главная)
+            'indicators' => fn () => $user ? app(Indicators::class)->for($user) : [],
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

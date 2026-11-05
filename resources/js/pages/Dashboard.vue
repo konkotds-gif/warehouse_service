@@ -6,8 +6,9 @@ import PageHeader from '../Components/PageHeader.vue';
 import StatusBadge from '../Components/StatusBadge.vue';
 import LocationPicker from '../Components/LocationPicker.vue';
 import { d } from '../lib/format';
+import { indicators } from '../lib/indicators';
 
-const props = defineProps({ location: Object, locations: Array, counts: Object, overdue: Number, tasks: Array, tasks_total: Number, ready: Array, integration: Object });
+const props = defineProps({ location: Object, locations: Array, counts: Object, overdue: Number, tasks: Array, tasks_total: Number, ready: Array, integration: Object, attention: Array });
 const page = usePage();
 const abilities = computed(() => page.props.auth?.abilities || []);
 const can = (a) => abilities.value.includes('*') || abilities.value.includes(a);
@@ -22,6 +23,11 @@ const tiles = computed(() => [
     { href: '/inventories', title: 'Инвентаризация', text: 'Сверка ячеек склада', icon: 'inventory', show: can('inventory') },
 ].filter((t) => t.show));
 
+// «Требует внимания»: для выбранной руководителем точки — её счётчики, иначе живые из шапки; непустые сверху
+const attention = computed(() => [...(props.attention ?? indicators.value)].sort((a, b) => (b.count > 0) - (a.count > 0)));
+const toneBorder = { red: 'border-red-600', amber: 'border-amber-500', blue: 'border-blue-600', green: 'border-green-600' };
+const toneText = { red: 'text-red-600', amber: 'text-amber-700', blue: 'text-blue-600', green: 'text-green-700' };
+
 const stat = (s) => props.counts?.[s] || 0;
 </script>
 
@@ -31,6 +37,22 @@ const stat = (s) => props.counts?.[s] || 0;
         :subtitle="location ? `${location.type_label} ${location.label}` : 'Вся сеть'">
         <LocationPicker v-if="can('reports')" :locations="locations" :current="location" />
     </PageHeader>
+
+    <section v-if="attention.length" class="mb-6">
+        <h2 class="mb-3 text-lg">Требует внимания</h2>
+        <div class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            <Link v-for="i in attention" :key="i.key" :href="i.href" :title="i.hint"
+                class="card card-hover flex flex-col gap-2 p-4 border-l-4" :class="i.count ? toneBorder[i.tone] : 'border-l-line opacity-70'">
+                <span class="flex items-center gap-2 text-sm font-semibold" :class="i.count ? toneText[i.tone] : 'text-ink-500'">
+                    <Icon :name="i.icon" :size="18" /> {{ i.label }}
+                </span>
+                <span class="flex items-end justify-between gap-2">
+                    <span class="text-3xl font-black tabular" :class="i.count ? '' : 'text-ink-500'">{{ i.count }}</span>
+                    <span v-if="i.count" class="hidden sm:inline text-xs text-ink-500 text-right">{{ i.hint }}</span>
+                </span>
+            </Link>
+        </div>
+    </section>
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Link v-for="t in tiles" :key="t.href" :href="t.href" class="card card-hover flex items-start gap-4 p-5">

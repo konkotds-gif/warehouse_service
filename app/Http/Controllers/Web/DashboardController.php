@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Domain\Storage\ContractStatus;
 use App\Domain\Storage\SetStatus;
+use App\Domain\Warehouse\Indicators;
 use App\Domain\Warehouse\TaskStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
@@ -19,7 +20,7 @@ class DashboardController extends Controller
 {
     use Concerns;
 
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, Indicators $indicators): Response
     {
         $location = $this->currentLocation($request);
         $byStatus = WheelSet::query()
@@ -40,6 +41,8 @@ class DashboardController extends Controller
         return Inertia::render('Dashboard', [
             'location' => Present::location($location),
             'locations' => $this->locations(),
+            // Для выбранной руководителем точки — её индикаторы; иначе совпадают с общими из шапки
+            'attention' => $location?->id !== $request->user()->location_id ? $indicators->for($request->user(), $location) : null,
             'counts' => $byStatus,
             'overdue' => StorageContract::where('status', ContractStatus::Overdue->value)
                 ->when($location, fn ($q) => $q->where('store_id', $location->id))->count(),

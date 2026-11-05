@@ -126,6 +126,8 @@ Route::middleware('auth')->group(function () {
 
     // Задания
     Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
+    // Счётчики для шапки/меню — фоновое обновление раз в минуту
+    Route::get('/indicators', [TaskController::class, 'indicators'])->name('indicators');
     Route::post('/tasks/{task}/done', [TaskController::class, 'done'])->name('tasks.done');
 
     // Инвентаризация

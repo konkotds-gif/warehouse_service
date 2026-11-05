@@ -23,8 +23,11 @@ class TransferController extends Controller
     public function index(Request $request): Response
     {
         $location = $this->currentLocation($request);
+        $dir = in_array($request->query('dir'), ['in', 'out'], true) ? $request->query('dir') : null;
         $transfers = Transfer::with(['from', 'to', 'trip'])->withCount('lines')
-            ->when($location, fn ($q) => $q->where(fn ($q) => $q->where('from_location_id', $location->id)->orWhere('to_location_id', $location->id)))
+            ->when($location && $dir === 'in', fn ($q) => $q->where('to_location_id', $location->id))
+            ->when($location && $dir === 'out', fn ($q) => $q->where('from_location_id', $location->id))
+            ->when($location && ! $dir, fn ($q) => $q->where(fn ($q) => $q->where('from_location_id', $location->id)->orWhere('to_location_id', $location->id)))
             ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
             // Незавершённые (ожидают погрузки) — сверху, чтобы к ним было легко вернуться
             ->orderByRaw("status = 'created' DESC")->orderByDesc('created_at')->paginate(30)->withQueryString();
@@ -34,6 +37,7 @@ class TransferController extends Controller
             'location' => Present::location($location),
             'locations' => $this->locations(),
             'status' => $request->query('status'),
+            'dir' => $dir,
         ]);
     }
 

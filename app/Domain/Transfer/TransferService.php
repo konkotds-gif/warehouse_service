@@ -53,6 +53,16 @@ final class TransferService
             ->get();
     }
 
+    /** Сколько комплектов в статусе $status лежит в точке (или во всей сети) и ещё не включено в перемещение. */
+    public function availableCount(?Location $from, SetStatus $status): int
+    {
+        return WheelSet::query()
+            ->when($from, fn ($q) => $q->where('current_location_id', $from->id))
+            ->where('status', $status->value)
+            ->whereNotIn('id', $this->openLineSetIds())
+            ->count();
+    }
+
     private function availableQuery(Location $from)
     {
         return WheelSet::with(['contract.vehicle', 'cell'])

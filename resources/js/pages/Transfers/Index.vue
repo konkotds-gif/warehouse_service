@@ -5,7 +5,9 @@ import Pagination from '../../Components/Pagination.vue';
 import LocationPicker from '../../Components/LocationPicker.vue';
 import { dt, can } from '../../lib/format';
 
-defineProps({ transfers: Object, location: Object, locations: Array, status: String });
+const props = defineProps({ transfers: Object, location: Object, locations: Array, status: String, dir: String });
+const statusLabel = { created: 'Ожидает погрузки', shipped: 'В пути', received: 'Принято', discrepancy: 'Расхождение', cancelled: 'Отменено' };
+const dirLabel = { in: 'входящие', out: 'исходящие' };
 const badge = { created: 'badge-ink', shipped: 'badge-blue', received: 'badge-green', discrepancy: 'badge-red', cancelled: 'badge-gray' };
 const purpose = { storage: 'На хранение', issue: 'К выдаче', relocation: 'Перемещение' };
 </script>
@@ -17,6 +19,12 @@ const purpose = { storage: 'На хранение', issue: 'К выдаче', re
         <Link href="/tasks/transport" class="btn-secondary">Перевозки</Link>
         <Link href="/transfers/create" class="btn-primary">Новое перемещение →</Link>
     </PageHeader>
+    <div v-if="status || dir" class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-ink-500">Фильтр:</span>
+        <span v-if="status" class="badge" :class="badge[status]">{{ statusLabel[status] || status }}</span>
+        <span v-if="dir" class="badge badge-ink">{{ dirLabel[dir] }}<template v-if="location">&nbsp;{{ dir === 'in' ? 'в' : 'из' }} {{ location.code }}</template></span>
+        <Link href="/transfers" class="btn-link !min-h-8">Сбросить</Link>
+    </div>
     <div class="card overflow-x-auto">
         <table class="table">
             <thead><tr><th>№</th><th>Статус</th><th>Откуда → куда</th><th>Назначение</th><th>Комплектов</th><th>Создано</th><th>Отгружено</th><th>Принято</th></tr></thead>
