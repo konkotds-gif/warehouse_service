@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Warehouse\Indicators;
 use App\Domain\Warehouse\TaskStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Task;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -31,6 +33,12 @@ class TaskController extends Controller
             'locations' => $this->locations(),
             'filters' => ['status' => $status, 'type' => $request->query('type')],
         ]);
+    }
+
+    /** Счётчики актуальной работы для шапки и меню (фоновое обновление). */
+    public function indicators(Request $request, Indicators $indicators): JsonResponse
+    {
+        return response()->json($indicators->for($request->user()));
     }
 
     public function done(Request $request, Task $task): RedirectResponse
