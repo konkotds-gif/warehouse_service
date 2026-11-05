@@ -102,6 +102,27 @@ class WheelSet extends Model
         };
     }
 
+    /** Текущий адрес для показа людям: без служебных ISSUED / DISPOSED / TR-…. */
+    public function displayAddress(): string
+    {
+        return self::humanAddress($this->currentAddress());
+    }
+
+    /**
+     * Служебный адрес (как в журнале движений и для 1С) → понятный текст.
+     * Ячейки, коды магазинов и прочее возвращаются как есть.
+     */
+    public static function humanAddress(?string $address): ?string
+    {
+        return match (true) {
+            $address === null => null,
+            $address === 'ISSUED' => 'у клиента',
+            $address === 'DISPOSED' => 'списан',
+            str_starts_with($address, 'TR-') => 'в пути · '.substr($address, 3),
+            default => $address,
+        };
+    }
+
     public function title(): string
     {
         return sprintf('%s · %d шт · %s · %s', $this->tire_size, $this->qty,

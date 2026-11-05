@@ -48,7 +48,7 @@ final class Present
             'notes' => $s->notes,
             'status' => $s->status->value,
             'status_label' => $s->status->label(),
-            'address' => $s->currentAddress(),
+            'address' => $s->displayAddress(),
             'location_id' => $s->current_location_id,
             'location_code' => $s->location?->code,
             'issue_store' => $s->issueStore?->code,
@@ -127,7 +127,7 @@ final class Present
             'damages' => $g->damages ?? [], 'damages_labels' => Damage::labels($g->damages),
             'state' => $g->state->value, 'state_label' => $g->state->label(),
             'active_set' => $active ? ['id' => $active->id, 'qr_code' => $active->qr_code, 'contract_id' => $active->contract_id,
-                'status_label' => $active->status->label(), 'status' => $active->status->value, 'address' => $active->currentAddress()] : null,
+                'status_label' => $active->status->label(), 'status' => $active->status->value, 'address' => $active->displayAddress()] : null,
             'prefill' => $g->prefill(),
         ];
     }
@@ -147,8 +147,8 @@ final class Present
     {
         return [
             'id' => $m->id, 'at' => $m->at->toIso8601String(), 'action' => $m->action,
-            'action_label' => Movement::actionLabel($m->action), 'from_address' => $m->from_address,
-            'to_address' => $m->to_address, 'from_status' => $m->from_status, 'to_status' => $m->to_status,
+            'action_label' => Movement::actionLabel($m->action), 'from_address' => WheelSet::humanAddress($m->from_address),
+            'to_address' => WheelSet::humanAddress($m->to_address), 'from_status' => $m->from_status, 'to_status' => $m->to_status,
             'user' => $m->user?->name, 'qty' => $m->qty, 'device' => $m->device, 'note' => $m->note,
             'qr_code' => $m->wheelSet?->qr_code,
         ];
@@ -200,7 +200,7 @@ final class Present
             'id' => $t->id, 'type' => $t->type->value, 'type_label' => $t->type->label(), 'title' => $t->title,
             'status' => $t->status->value, 'due_date' => $t->due_date?->toDateString(),
             'location' => $t->location?->code, 'set' => $t->wheelSet ? ['id' => $t->wheelSet->id, 'qr_code' => $t->wheelSet->qr_code,
-                'contract_id' => $t->wheelSet->contract_id, 'address' => $t->wheelSet->currentAddress()] : null,
+                'contract_id' => $t->wheelSet->contract_id, 'address' => $t->wheelSet->displayAddress()] : null,
             'payload' => $t->payload, 'assignee' => $t->assignee?->name,
             'overdue' => $t->status->value === 'open' && $t->due_date && $t->due_date->lt(now()->startOfDay()),
         ];
