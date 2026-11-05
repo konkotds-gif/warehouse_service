@@ -44,7 +44,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_mysql, mbstring, intl, bcmath, gd, zip
+          extensions: pdo_mysql, mbstring, intl, bcmath, gd, zip, ldap
           coverage: none
 
       - name: Composer

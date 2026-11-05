@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\Ldap\LdapConnection;
+use App\Domain\Ldap\NativeLdapConnection;
 use App\Domain\Notifications\Sms;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
@@ -12,6 +14,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(Sms::class);
+        $this->app->bind(LdapConnection::class, NativeLdapConnection::class);
     }
 
     public function boot(): void

@@ -17,3 +17,6 @@ Schedule::command('cars:sync')->dailyAt('04:30')->timezone(config('app.display_t
 
 // Отметка, что планировщик (cron schedule:run) работает — видна в «Настройках» и в /health
 Schedule::call(fn () => Setting::put('scheduler.last_run_at', now()->toIso8601String()))->everyMinute()->name('scheduler-heartbeat');
+
+// Каждый час: сверка доменных пользователей с AD (роли по группам, отключённые и уволенные)
+Schedule::command('ldap:sync')->hourly()->withoutOverlapping();

@@ -2,9 +2,10 @@
 import { computed, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import PageHeader from '../../Components/PageHeader.vue';
+import LdapSettings from '../../Components/LdapSettings.vue';
 import { dt } from '../../lib/format';
 
-const props = defineProps({ cars: Object, scheduler_last_run_at: String });
+const props = defineProps({ cars: Object, scheduler_last_run_at: String, ldap: Object });
 const form = useForm({ api_url: props.cars.api_url, api_key: '', remove_key: false });
 const busy = ref('');
 
@@ -81,4 +82,6 @@ const schedulerOk = computed(() => schedulerMinutes.value !== null && schedulerM
                 <div v-else class="text-xs text-ink-500 mt-1">последний запуск {{ dt(scheduler_last_run_at) }}</div></div>
         </div>
     </section>
+
+    <LdapSettings :ldap="ldap" />
 </template>

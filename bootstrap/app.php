@@ -3,6 +3,7 @@
 use App\Domain\Support\DomainError;
 use App\Http\Api\ApiResponse;
 use App\Http\Middleware\ApiKeyAuth;
+use App\Http\Middleware\EnsureUserCanSignIn;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\Idempotency;
 use App\Http\Middleware\ParseXmlBody;
@@ -24,7 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->web(append: [HandleInertiaRequests::class]);
+        $middleware->web(append: [EnsureUserCanSignIn::class, HandleInertiaRequests::class]);
         $middleware->alias([
             'api.key' => ApiKeyAuth::class,
             'xml.body' => ParseXmlBody::class,

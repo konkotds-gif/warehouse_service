@@ -3,6 +3,8 @@ import { Head, useForm } from '@inertiajs/vue3';
 import Logo from '../../Components/Logo.vue';
 import Icon from '../../Components/Icon.vue';
 
+defineProps({ ldap: Object });
+
 const form = useForm({ login: '', password: '', remember: true });
 const submit = () => form.post('/login', { onFinish: () => form.reset('password') });
 </script>
@@ -20,10 +22,11 @@ const submit = () => form.post('/login', { onFinish: () => form.reset('password'
             <form class="card p-8 w-full max-w-md mx-auto" @submit.prevent="submit">
                 <div class="lg:hidden mb-6"><Logo /></div>
                 <h2 class="text-2xl">Вход для сотрудников</h2>
-                <p class="mt-1 text-ink-500 text-sm">Используйте логин и пароль, выданные администратором.</p>
+                <p v-if="ldap" class="mt-1 text-ink-500 text-sm">Войдите доменной учётной записью — тем же логином и паролем, что и в Windows<template v-if="ldap.domain"> (домен {{ ldap.domain }})</template>.</p>
+                <p v-else class="mt-1 text-ink-500 text-sm">Используйте логин и пароль, выданные администратором.</p>
                 <div class="mt-6">
                     <label class="label" for="login">Логин</label>
-                    <input id="login" v-model="form.login" class="input" autocomplete="username" autofocus autocapitalize="none" />
+                    <input id="login" v-model="form.login" class="input" autocomplete="username" autofocus autocapitalize="none" :placeholder="ldap ? (ldap.domain ? `ivanov или ${ldap.domain}\\ivanov` : 'ivanov') : ''" />
                     <div v-if="form.errors.login" class="error">{{ form.errors.login }}</div>
                 </div>
                 <div class="mt-4">

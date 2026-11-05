@@ -21,6 +21,7 @@ class UserController extends Controller
                 'id' => $u->id, 'login' => $u->login, 'name' => $u->name, 'role' => $u->role->value, 'role_label' => $u->role->label(),
                 'location_id' => $u->location_id, 'location' => $u->location?->code, 'is_active' => $u->is_active,
                 'last_login_at' => $u->last_login_at?->toIso8601String(),
+                'source' => $u->isLdap() ? 'ldap' : 'local', 'ldap_denied' => $u->ldap_denied_at !== null,
             ]),
             'roles' => collect(Role::cases())->map(fn ($r) => ['value' => $r->value, 'label' => $r->label()]),
             'locations' => Location::orderBy('code')->get(['id', 'code', 'name']),
@@ -36,6 +37,16 @@ class UserController extends Controller
 
     public function update(Request $request, User $user): RedirectResponse
     {
+        if ($user->isLdap()) {
+            // Логин, имя и роль доменного пользователя берутся из AD; здесь — только блокировка и локация
+            $data = $request->validate(['location_id' => ['nullable', 'integer', 'exists:locations,id'], 'is_active' => ['boolean']]);
+            if ($user->id === $request->user()->id && ! ($data['is_active'] ?? true)) {
+                return back()->with('error', 'Нельзя отключить себя');
+            }
+            $user->update($data);
+
+            return back()->with('success', 'Пользователь сохранён');
+        }
         $data = $this->validated($request, $user);
         if (empty($data['password'])) {
             unset($data['password']);
