@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Client;
 use App\Models\GarageSet;
+use App\Models\TireBrand;
 use App\Models\Vehicle;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,7 @@ class ClientController extends Controller
             'client' => Present::client($client),
             'garage' => Present::garage($client),
             'contracts' => $contracts->map(fn ($c) => Present::contract($c))->all(),
+            'tireBrands' => TireBrand::activeNames(),
         ]);
     }
 

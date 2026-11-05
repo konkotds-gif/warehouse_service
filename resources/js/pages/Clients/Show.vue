@@ -4,19 +4,26 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import Icon from '../../Components/Icon.vue';
 import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
+import TireSizeInput from '../../Components/TireSizeInput.vue';
+import BrandSelect from '../../Components/BrandSelect.vue';
+import { splitBrandModel, joinBrandModel } from '../../lib/tires';
 import { d, phone, can } from '../../lib/format';
 
-const props = defineProps({ client: Object, garage: Array, contracts: Array });
+const props = defineProps({ client: Object, garage: Array, contracts: Array, tireBrands: { type: Array, default: () => [] } });
 const seasons = usePage().props.dict.seasons;
 const edit = useForm({ ...props.client });
 const showEdit = ref(false);
 const vehicle = useForm({ plate: '', make: '', model: '' });
 const showVehicle = ref(false);
-const gs = useForm({ title: '', season: null, qty: 4, tire_size: '', with_rims: true, condition: 'used', brand_model: '', notes: '' });
+const gs = useForm({ title: '', season: null, qty: 4, tire_size: '', with_rims: true, condition: 'used', brand: '', model: '', notes: '' });
 const gsEdit = ref(null);
 function openGs(g) {
     gsEdit.value = g;
-    Object.assign(gs, { title: g.title, season: g.season, qty: g.qty, tire_size: g.tire_size, with_rims: g.with_rims, condition: g.condition, brand_model: g.brand_model || '', notes: g.notes || '' });
+    Object.assign(gs, { title: g.title, season: g.season, qty: g.qty, tire_size: g.tire_size, with_rims: g.with_rims, condition: g.condition, ...splitBrandModel(g.brand_model, props.tireBrands), notes: g.notes || '' });
+}
+function saveGs() {
+    gs.transform(({ brand, model, ...d }) => ({ ...d, brand_model: joinBrandModel(brand, model) || null }))
+        .put(`/garage-sets/${gsEdit.value.id}`, { preserveScroll: true, onSuccess: () => (gsEdit.value = null) });
 }
 const move = reactive({ set: null, vehicle_id: null });
 const merge = useForm({ other_id: '' });
@@ -111,13 +118,14 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
     <Modal :show="!!gsEdit" title="Комплект в гараже" @close="gsEdit = null">
         <div class="grid gap-3 sm:grid-cols-2">
             <div class="sm:col-span-2"><label class="label">Название</label><input v-model="gs.title" class="input" /></div>
-            <div><label class="label">Размер</label><input v-model="gs.tire_size" class="input tabular" /><div class="error" v-if="gs.errors.tire_size">{{ gs.errors.tire_size }}</div></div>
+            <div class="sm:col-span-2"><label class="label">Размер</label><TireSizeInput v-model="gs.tire_size" /><div class="error" v-if="gs.errors.tire_size">{{ gs.errors.tire_size }}</div></div>
             <div><label class="label">Колёс</label><input v-model.number="gs.qty" type="number" min="1" max="8" class="input" /></div>
             <div><label class="label">Сезон</label><select v-model="gs.season" class="input"><option :value="null">—</option><option v-for="s in seasons" :key="s.value" :value="s.value">{{ s.label }}</option></select></div>
             <div><label class="label">Состояние</label><select v-model="gs.condition" class="input"><option value="used">БУ</option><option value="new">НОВЫЕ</option></select></div>
             <label class="flex gap-2 text-sm items-center"><input type="checkbox" v-model="gs.with_rims" class="accent-blue-600" /> С дисками</label>
-            <div class="sm:col-span-2"><label class="label">Бренд / модель</label><input v-model="gs.brand_model" class="input" /></div>
-            <button class="btn-primary sm:col-span-2" @click="gs.put(`/garage-sets/${gsEdit.id}`, { preserveScroll: true, onSuccess: () => (gsEdit = null) })">Сохранить</button>
+            <div><label class="label">Бренд</label><BrandSelect v-model="gs.brand" :options="tireBrands" /></div>
+            <div><label class="label">Модель</label><input v-model="gs.model" class="input" /></div>
+            <button class="btn-primary sm:col-span-2" @click="saveGs">Сохранить</button>
         </div>
     </Modal>
     <Modal :show="!!move.set" title="Перенести комплект на другую машину" @close="move.set = null">
