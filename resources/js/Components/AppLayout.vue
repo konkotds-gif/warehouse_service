@@ -23,6 +23,7 @@ const nav = computed(() => [
     { href: '/tasks', label: 'Задания', icon: 'tasks', show: true },
     { href: '/contracts', label: 'Договоры', icon: 'file', show: can('search') },
     { href: '/clients', label: 'Клиенты', icon: 'users', show: can('clients') },
+    { href: '/vehicles', label: 'Автомобили', icon: 'car', show: can('clients') },
     { href: '/inventories', label: 'Инвентаризация', icon: 'inventory', show: can('inventory') },
     { href: '/locations', label: 'Склады и ячейки', icon: 'map', show: can('place') },
     { href: '/reports', label: 'Отчёты', icon: 'chart', show: can('reports') },
