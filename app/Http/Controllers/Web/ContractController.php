@@ -65,12 +65,13 @@ class ContractController extends Controller
         $whereabouts = SetWhereabouts::forSets($contract->sets);
 
         return Inertia::render('Contracts/Show', [
-            'contract' => Present::contract($contract, true) + [
+            // array_merge, а не «+»: Present::contract уже содержит ключ sets, его нужно заменить
+            'contract' => array_merge(Present::contract($contract, true), [
                 'sets' => $contract->sets->map(fn (WheelSet $s) => Present::set($s) + [
                     'whereabouts' => $whereabouts[$s->id] ?? null,
                     'photos' => $s->photos->map(fn ($p) => ['id' => $p->id, 'url' => route('photos.show', $p)])->all(),
                 ])->all(),
-            ],
+            ]),
             'debt' => $issue->debtCheck($contract),
             'pricing' => Pricing::settings() + [
                 // Продление на 1 месяц по текущему прайсу (для подсказки в окне продления)
