@@ -5,6 +5,7 @@ namespace App\Domain\Storage;
 use App\Domain\Integration\OneC\Outbox;
 use App\Domain\Notifications\Sms;
 use App\Domain\Support\DomainError;
+use App\Domain\Transfer\TransferService;
 use App\Domain\Warehouse\TaskStatus;
 use App\Domain\Warehouse\TaskType;
 use App\Models\Location;
@@ -28,6 +29,7 @@ final class IssueService
         private readonly Sms $sms,
         private readonly Pricing $pricing,
         private readonly ContractConfirmation $confirmation,
+        private readonly TransferService $transfers,
     ) {}
 
     /** Заказ к выдаче в магазине $store к дате $date. */
@@ -55,7 +57,8 @@ final class IssueService
                 // Комплект уже в буфере магазина выдачи
                 $this->mover->transition($set, SetStatus::Ready, 'ready');
                 $this->sms->setReady($set);
-            } else {
+            } elseif (! $this->transfers->enqueueForIssue($set->fresh(), $store, $user)) {
+                // Комплект уже едет другим перемещением — отдельное задание на отбор
                 $due = $date->copy()->subDay();
                 Task::create([
                     'type' => TaskType::Pick,
@@ -86,6 +89,7 @@ final class IssueService
                 default => SetStatus::Accepted,
             };
             $this->mover->transition($set, $to, 'order_cancel', ['issue_store_id' => null, 'issue_due_date' => null]);
+            $this->transfers->dequeueFromIssue($set);
             Task::where('wheel_set_id', $set->id)->where('type', TaskType::Pick->value)->where('status', TaskStatus::Open->value)
                 ->update(['status' => TaskStatus::Cancelled->value, 'completed_at' => now()]);
 
