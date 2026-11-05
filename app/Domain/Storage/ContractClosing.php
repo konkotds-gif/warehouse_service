@@ -87,9 +87,9 @@ final class ContractClosing
     }
 
     /**
-     * Закрыть договор: проверить код из SMS, выдать оставшиеся комплекты (скан бирки), начислить плату за просрочку.
+     * Закрыть договор: проверить код из SMS, выдать оставшиеся комплекты (уже принятые в магазине), начислить плату за просрочку.
      *
-     * @param  array{code?: ?string, tag?: ?string, paid?: bool, reason?: ?string}  $input
+     * @param  array{code?: ?string, paid?: bool, reason?: ?string}  $input
      */
     public function close(StorageContract $contract, array $input, ?User $user = null): StorageContract
     {
@@ -106,10 +106,6 @@ final class ContractClosing
             if ($quote['due'] > 0 && empty($input['paid'])) {
                 throw DomainError::invalid('Примите в кассе оплату за хранение после срока — '
                     .number_format($quote['due'], 2, ',', ' ').' ₽ — и отметьте её', 'paid');
-            }
-            $tag = trim((string) ($input['tag'] ?? ''));
-            if ($quote['to_issue'] !== [] && $tag === '') {
-                throw DomainError::invalid('Отсканируйте QR на бирке выдаваемых колёс', 'tag');
             }
 
             $reason = trim((string) ($input['reason'] ?? ''));
@@ -128,11 +124,12 @@ final class ContractClosing
                 $closing = ['confirmation' => 'sms', 'phone' => $sent->phone];
             }
 
+            // Скан бирки не нужен: комплекты «Готов к выдаче» уже приняты в магазине кладовщиком/продавцом.
             // Последний выдаваемый комплект закрывает договор с реквизитами закрытия (IssueService::issue)
             $ids = array_column($quote['to_issue'], 'id');
             foreach ($ids as $i => $id) {
                 $set = WheelSet::findOrFail($id);
-                $this->issue->issue($set, $tag, null, $user, $i === array_key_last($ids) ? $closing : null);
+                $this->issue->issue($set, $contract->number, null, $user, $i === array_key_last($ids) ? $closing : null);
             }
             $contract->refresh();
             if ($contract->status !== ContractStatus::Closed) {
