@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <title>Пролонгация {{ $e->number }} к договору {{ $contract->number }}</title>
 <style>
-    @page { size: A4; margin: 10mm; }
+    /* Поля страницы = 0: браузеру некуда печатать колонтитулы (дата, URL, номера страниц).
+       Отступы от края листа даёт таблица-рамка: thead/tfoot повторяются на каждой странице. */
+    @page { size: A4; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 10.5pt; }
     .doc { width: 190mm; margin: 0 auto; }
@@ -25,6 +27,10 @@
     .noprint { position: fixed; top: 8px; right: 8px; font: 14px Arial; }
     @media print { .noprint { display: none; } }
     @media screen { body { background: #eee; } .doc { background: #fff; padding: 10mm; margin: 10mm auto; } }
+    .frame { width: 100%; border-collapse: collapse; margin: 0; }
+    .frame > thead > tr > td, .frame > tfoot > tr > td { height: 10mm; padding: 0; border: 0; }
+    .frame > tbody > tr > td { padding: 0 10mm; border: 0; }
+    @media screen { .frame > thead, .frame > tfoot { display: none; } .frame > tbody > tr > td { padding: 0; } }
 </style>
 </head>
 <body onload="window.print()">
@@ -33,6 +39,7 @@
     $money = fn ($v) => $v === null ? '—' : number_format((float) $v, 2, ',', ' ');
     $lines = $e->lines ?? [];
 @endphp
+<table class="frame"><thead><tr><td></td></tr></thead><tfoot><tr><td></td></tr></tfoot><tbody><tr><td>
 <div class="doc">
     <h1>Пролонгация договора хранения № {{ $e->number }}</h1>
     <p class="sub">от {{ $e->extended_at->timezone($tz)->format('d.m.Y') }} к договору (квитанции) хранения № <b>{{ $contract->number }}</b>
@@ -77,5 +84,6 @@
         <div>Клиент: с условиями продления согласен, подпись, ФИО</div>
     </div>
 </div>
+</td></tr></tbody></table>
 </body>
 </html>
