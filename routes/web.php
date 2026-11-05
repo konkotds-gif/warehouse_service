@@ -121,6 +121,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/inventories', [InventoryController::class, 'store'])->name('inventories.store');
         Route::get('/inventories/{inventory}', [InventoryController::class, 'show'])->name('inventories.show');
         Route::post('/w/inventories/{inventory}/scan', [InventoryController::class, 'scan'])->name('inventories.scan');
+        Route::post('/w/inventories/{inventory}/undo', [InventoryController::class, 'undo'])->name('inventories.undo');
         Route::post('/inventories/{inventory}/finish', [InventoryController::class, 'finish'])->name('inventories.finish');
     });
 

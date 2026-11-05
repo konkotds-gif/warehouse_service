@@ -43,11 +43,14 @@ class InventoryController extends Controller
     public function show(Inventory $inventory, InventoryService $service): Response
     {
         $inventory->load(['location', 'row']);
+        $report = $inventory->status === 'open' ? $service->report($inventory) : $inventory->result;
+        // Результаты, сохранённые до поштучного счёта, — без новых разделов
+        $report += ['split' => [], 'short' => [], 'over' => [], 'by_cell' => [], 'wheels_expected' => null, 'wheels_found' => null];
 
         return Inertia::render('Inventory/Show', [
             'inventory' => ['id' => $inventory->id, 'status' => $inventory->status, 'location' => $inventory->location->label(),
                 'row' => $inventory->row?->row_no, 'result' => $inventory->result],
-            'report' => $inventory->status === 'open' ? $service->report($inventory) : $inventory->result,
+            'report' => $report,
             'scans' => $inventory->scans()->orderByDesc('id')->limit(30)->get(['cell_address', 'qr_code', 'scanned_at']),
         ]);
     }
@@ -57,7 +60,22 @@ class InventoryController extends Controller
         $data = $request->validate(['address' => ['required', 'string'], 'code' => ['nullable', 'string']]);
         $scan = $service->scan($inventory, $data['address'], $data['code'] ?? null);
 
-        return response()->json(['message' => $scan->qr_code ? "{$scan->cell_address}: {$scan->qr_code}" : "{$scan->cell_address}: пусто"]);
+        if (! $scan->qr_code) {
+            return response()->json(['message' => "{$scan->cell_address}: пусто"]);
+        }
+        $n = $service->wheelsFound($inventory, $scan->qr_code, $scan->cell_address);
+        $message = $n['qty']
+            ? "{$scan->cell_address}: {$scan->qr_code} — колесо {$n['total']} из {$n['qty']}".($n['cell'] !== $n['total'] ? " (в этой ячейке {$n['cell']})" : '')
+            : "{$scan->cell_address}: {$scan->qr_code} — бирка не найдена в базе";
+
+        return response()->json(['message' => $message, 'complete' => $n['qty'] && $n['total'] >= $n['qty']]);
+    }
+
+    public function undo(Request $request, Inventory $inventory, InventoryService $service): JsonResponse
+    {
+        $scan = $service->undo($inventory, $request->user());
+
+        return response()->json(['message' => 'Отменён скан: '.$scan->cell_address.($scan->qr_code ? " · {$scan->qr_code}" : ' · пусто')]);
     }
 
     public function finish(Request $request, Inventory $inventory, InventoryService $service): RedirectResponse
