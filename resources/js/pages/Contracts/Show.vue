@@ -6,7 +6,7 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { d, dt, money, phone, today, can } from '../../lib/format';
 
-const props = defineProps({ contract: Object, debt: Object, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean });
+const props = defineProps({ contract: Object, debt: Object, pricing: Object, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
 
@@ -35,7 +35,7 @@ function openIssue(s) {
 const submitIssue = () => issue.post(`/sets/${issueSet.value.id}/issue`, { preserveScroll: true, onSuccess: () => (issueSet.value = null) });
 
 // Продление
-const extend = useForm({ months: 6 });
+const extend = useForm({ months: 1 });
 const showExtend = ref(false);
 const submitExtend = () => extend.post(`/contracts/${props.contract.id}/extend`, { preserveScroll: true, onSuccess: () => (showExtend.value = false) });
 
@@ -141,10 +141,17 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <div class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
             </div>
             <div class="card p-5" :class="debt.blocked ? 'border-red-600' : ''">
-                <div class="flex justify-between"><span class="text-ink-500">Сумма</span><b>{{ money(contract.amount) }}</b></div>
-                <div class="flex justify-between gap-3 mt-1"><span class="text-ink-500">Тариф</span><span class="text-right">{{ contract.tariff?.name || '—' }}</span></div>
+                <div class="flex justify-between"><span class="text-ink-500">Сумма за хранение</span><b>{{ money(contract.amount) }}</b></div>
+                <div v-for="s in contract.sets.filter((x) => x.price !== null)" :key="s.id" class="flex justify-between gap-3 mt-1 text-sm">
+                    <span class="text-ink-500">{{ s.qr_code }} · {{ s.tire_size }}</span>
+                    <span class="tabular text-right">{{ money(s.price) }} × {{ s.qty }} кол.{{ contract.months ? ` × ${contract.months} мес.` : '' }}</span>
+                </div>
+                <div v-if="!contract.sets.some((x) => x.price !== null)" class="flex justify-between gap-3 mt-1"><span class="text-ink-500">Тариф</span><span class="text-right">{{ contract.tariff?.name || '—' }}</span></div>
                 <div class="flex justify-between mt-1"><span class="text-ink-500">Срок хранения до</span><span class="tabular">{{ d(contract.storage_until) }}</span></div>
                 <div class="flex justify-between mt-1"><span class="text-ink-500">Оплачено до</span><span class="tabular">{{ d(contract.paid_until) }}</span></div>
+                <div v-if="debt.overdue.free_until" class="flex justify-between mt-1"><span class="text-ink-500">Бесплатно забрать до</span><span class="tabular">{{ d(debt.overdue.free_until) }}</span></div>
+                <div v-if="debt.overdue.due > 0" class="flex justify-between mt-1"><span class="text-ink-500">После срока: {{ debt.overdue.days }} дн.</span><b class="text-red-600 tabular">{{ money(debt.overdue.due) }}</b></div>
+                <div v-if="contract.overdue_fee > 0" class="flex justify-between mt-1"><span class="text-ink-500">Начислено за просрочку</span><span class="tabular">{{ money(contract.overdue_fee) }} ({{ contract.overdue_days }} дн.)</span></div>
                 <div class="flex justify-between mt-1"><span class="text-ink-500">Долг (1С)</span><b :class="debt.debt > 0 ? 'text-red-600' : ''">{{ money(debt.debt) }}</b></div>
                 <div v-for="w in debt.warnings" :key="w" class="mt-2 text-sm flex gap-2 text-amber-700"><Icon name="alert" :size="16" class="flex-none mt-0.5" /> {{ w }}</div>
                 <div class="mt-2 text-xs text-ink-500" v-if="contract.onec_doc_guid">Документ 1С: {{ contract.onec_doc_guid }}</div>
@@ -173,6 +180,10 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
 
     <Modal :show="!!issueSet" title="Выдача клиенту" @close="issueSet = null">
         <div v-if="debt.blocked" class="mb-3 rounded-[12px] bg-red-50 p-3 text-sm text-red-600">Выдача заблокирована: долг {{ money(debt.debt) }}. Клиент должен оплатить в кассе (1С).</div>
+        <div v-if="debt.overdue.due > 0" class="mb-3 rounded-[12px] bg-amber-500/10 p-3 text-amber-700">
+            <div class="font-semibold">Доплата за хранение после срока: {{ money(debt.overdue.due) }}</div>
+            <div class="text-sm">Срок истёк {{ d(debt.overdue.ends_at) }}, бесплатно до {{ d(debt.overdue.free_until) }}; {{ debt.overdue.days }} дн. × {{ money(debt.overdue.rate) }}{{ debt.overdue.per === 'wheel' ? ` × ${debt.overdue.wheels} кол.` : '' }}. Примите оплату в кассе (1С).</div>
+        </div>
         <label class="label">Отсканируйте QR на бирке выдаваемого колеса</label>
         <input v-model="issue.code" class="input input-lg tabular" autofocus placeholder="QR бирки" @keyup.enter="submitIssue" />
         <label class="label mt-3">Сколько колёс выдаёте (по договору {{ issueSet?.qty }})</label>
@@ -195,7 +206,11 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
 
     <Modal :show="showExtend" title="Продлить хранение" @close="showExtend = false">
         <label class="label">На сколько месяцев</label>
-        <input v-model.number="extend.months" type="number" min="1" max="24" class="input" />
+        <div class="seg w-full grid" :style="{ gridTemplateColumns: `repeat(${pricing.max_months}, minmax(0, 1fr))` }">
+            <button v-for="m in pricing.max_months" :key="m" type="button" class="tabular" :class="{ on: extend.months === m }" @click="extend.months = m">{{ m }}</button>
+        </div>
+        <div v-if="extend.errors.months || extend.errors.domain" class="error">{{ extend.errors.months || extend.errors.domain }}</div>
+        <p v-if="pricing.extend_month !== null" class="mt-3">Стоимость продления по прайсу: <b class="tabular">{{ money(pricing.extend_month * extend.months) }}</b></p>
         <p class="mt-2 text-sm text-ink-500">В 1С уйдёт событие contract.extended для начисления.</p>
         <button class="btn-primary w-full mt-5" :disabled="extend.processing" @click="submitExtend">Продлить</button>
     </Modal>

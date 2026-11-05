@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Domain\Storage\AcceptanceService;
 use App\Domain\Storage\GarageSetState;
+use App\Domain\Storage\Pricing;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Client;
@@ -34,7 +35,9 @@ class AcceptController extends Controller
         return Inertia::render('Accept/Wizard', [
             'stores' => Location::active()->stores()->orderBy('code')->get()->map(fn ($l) => Present::location($l))->all(),
             'defaultStoreId' => $user->location?->isStore() ? $user->location_id : null,
-            'tariffs' => Tariff::where('is_active', true)->orderBy('name')->get(['id', 'code', 'name', 'price', 'period', 'months']),
+            'prices' => Tariff::where('is_active', true)->whereNotNull('diameter_from')->orderBy('diameter_from')
+                ->get(['id', 'code', 'name', 'diameter_from', 'diameter_to', 'price']),
+            'pricing' => Pricing::settings(),
             'client' => $client ? Present::client($client) : null,
             'garage' => $client ? array_map(fn ($v) => $v + ['garage_sets' => array_values(array_filter($v['garage_sets'],
                 fn ($g) => $g['state'] !== GarageSetState::Retired->value))], Present::garage($client)) : [],
@@ -55,8 +58,7 @@ class AcceptController extends Controller
             'client.consent_pd' => ['nullable', 'boolean'],
             'vehicle_id' => ['nullable', 'uuid'],
             'vehicle' => ['nullable', 'array'],
-            'tariff_id' => ['nullable', 'integer'],
-            'months' => ['nullable', 'integer', 'min:1', 'max:24'],
+            'months' => ['nullable', 'integer', 'min:1', 'max:'.Pricing::settings()['max_months']],
             'notes' => ['nullable', 'string', 'max:255'],
             'sets' => ['required', 'array', 'min:1', 'max:4'],
             'sets.*.qty' => ['required', 'integer', 'min:1', 'max:8'],

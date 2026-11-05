@@ -16,7 +16,7 @@ class StorageContract extends Model
     use Audited, HasUuids, SoftDeletes;
 
     protected $fillable = ['number', 'client_id', 'vehicle_id', 'store_id', 'tariff_id', 'accepted_by', 'accepted_at',
-        'paid_until', 'storage_until', 'amount', 'debt', 'debt_updated_at', 'status', 'onec_doc_guid', 'closed_at', 'notes'];
+        'paid_until', 'storage_until', 'months', 'amount', 'overdue_fee', 'overdue_days', 'debt', 'debt_updated_at', 'status', 'onec_doc_guid', 'closed_at', 'notes'];
 
     protected function casts(): array
     {
@@ -27,6 +27,9 @@ class StorageContract extends Model
             'debt_updated_at' => 'datetime',
             'closed_at' => 'datetime',
             'amount' => 'decimal:2',
+            'overdue_fee' => 'decimal:2',
+            'overdue_days' => 'integer',
+            'months' => 'integer',
             'debt' => 'decimal:2',
             'status' => ContractStatus::class,
         ];

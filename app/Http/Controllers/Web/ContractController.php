@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Web;
 use App\Domain\Labels\TagRenderer;
 use App\Domain\Storage\ContractService;
 use App\Domain\Storage\IssueService;
+use App\Domain\Storage\Pricing;
 use App\Domain\Storage\SetMover;
+use App\Domain\Support\DomainError;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Location;
@@ -39,7 +41,7 @@ class ContractController extends Controller
         ]);
     }
 
-    public function show(Request $request, StorageContract $contract, IssueService $issue): Response
+    public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing): Response
     {
         $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments',
             'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
@@ -60,6 +62,10 @@ class ContractController extends Controller
                 ])->all(),
             ],
             'debt' => $issue->debtCheck($contract),
+            'pricing' => Pricing::settings() + [
+                // Продление на 1 месяц по текущему прайсу (для подсказки в окне продления)
+                'extend_month' => $this->extendMonth($contract, $pricing),
+            ],
             'movements' => $movements->map(fn ($m) => Present::movement($m))->all(),
             'prints' => $prints->map(fn ($p) => ['copies' => $p->copies, 'reason' => $p->reason, 'format' => $p->format,
                 'at' => $p->printed_at->toIso8601String(), 'user' => $p->user?->name, 'qr_code' => $contract->sets->firstWhere('id', $p->wheel_set_id)?->qr_code])->all(),
@@ -69,9 +75,18 @@ class ContractController extends Controller
         ]);
     }
 
+    private function extendMonth(StorageContract $contract, Pricing $pricing): ?float
+    {
+        try {
+            return round(array_sum(array_column($pricing->extensionLines($contract, 1), 'amount')), 2);
+        } catch (DomainError) {
+            return null; // для размера нет цены в прайсе
+        }
+    }
+
     public function extend(Request $request, StorageContract $contract, ContractService $service): RedirectResponse
     {
-        $service->extend($contract, $request->validate(['months' => ['required', 'integer', 'min:1', 'max:24']])['months'], $request->user());
+        $service->extend($contract, $request->validate(['months' => ['required', 'integer', 'min:1', 'max:'.Pricing::settings()['max_months']]])['months'], $request->user());
 
         return back()->with('success', 'Срок хранения продлён, событие отправлено в 1С');
     }

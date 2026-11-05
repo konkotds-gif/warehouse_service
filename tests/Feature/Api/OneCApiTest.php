@@ -98,7 +98,11 @@ class OneCApiTest extends TestCase
 
         $this->putJson('/api/v1/services/22222222-0000-0000-0000-000000000001', ['code' => 'ХР-1', 'name' => 'Хранение', 'price' => 4800], $this->h())
             ->assertStatus(201);
-        $this->assertSame(1, Tariff::count());
+        $this->assertSame(1, Tariff::where('code', 'ХР-1')->count());
+        // 1С обновляет цену строки прайса по коду, диаметры сохраняются
+        $this->putJson('/api/v1/services/22222222-0000-0000-0000-000000000002', ['code' => 'ЦБ000335', 'name' => 'R-16 - сезонное хранение шины', 'price' => 125], $this->h())
+            ->assertOk()->assertJsonPath('diameter_from', 16);
+        $this->assertEquals(125, (float) Tariff::where('code', 'ЦБ000335')->value('price'));
 
         $this->store('М01');
         $this->putJson('/api/v1/locations/33333333-0000-0000-0000-000000000001', ['code' => 'М01'], $this->h())

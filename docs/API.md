@@ -43,14 +43,24 @@
 | `contract.created` | Принят комплект, создан договор | Создать реализацию услуги хранения, в ack вернуть `onec_doc_guid` |
 | `contract.extended` | Договор продлён | Документ продления |
 | `contract.closed` | Все комплекты выданы | Закрыть договор |
-| `set.issued` | Комплект выдан клиенту | По необходимости |
+| `set.issued` | Комплект выдан клиенту | Если `overdue` не пуст — начислить плату за хранение после срока |
 | `set.overdue` | Срок хранения истёк | Начисление/уведомление |
 | `transfer.completed` | Перемещение принято полностью | Перемещение между складами 1С |
 
 Данные договора (`contract.*`): `contract_number`, `contract_id`, `status`, `client_id`, `client_onec_guid`,
 `client_name`, `client_phone`, `vehicle{plate,make,model}`, `store_code`, `store_onec_guid`, `service_code`,
-`service_onec_guid`, `accepted_at`, `storage_until`, `paid_until`, `amount`, `onec_doc_guid`,
-`sets[]{qr_code, qty, tire_size, with_rims, condition, season, status, address}`.
+`service_onec_guid`, `accepted_at`, `storage_until`, `months`, `paid_until`, `amount`, `onec_doc_guid`,
+`sets[]{qr_code, qty, tire_size, with_rims, condition, season, status, address, service_code, service_onec_guid, price, amount}`.
+
+Стоимость считается по прайсу диаметров: у каждого комплекта своя строка услуги — `service_code` (код номенклатуры 1С,
+например `ЦБ000335` для R16), `price` (цена за 1 колесо в месяц), `qty` (колёс) и `amount = price × qty × months`.
+Для документа реализации в 1С — одна строка на комплект: номенклатура `service_code`, количество `qty × months`, цена `price`.
+`contract.extended` дополнительно содержит `extended_months`, `extra_amount` и `extension_lines[]{qr_code, service_code,
+service_onec_guid, diameter, qty, months, price, amount}` по текущему прайсу.
+
+`set.issued` содержит `overdue{service_code, days, rate, per, amount}` (или `null`): плата за дни после окончания срока
+и бесплатного периода. `per` = `contract` (ставка за договор в день) или `wheel` (за колесо в день). Код услуги и условия
+задаются в «Тарифы → Условия хранения».
 
 Данные перемещения: `transfer_number`, `status`, `from_code`, `from_onec_guid`, `to_code`, `to_onec_guid`,
 `shipped_at`, `received_at`, `sets[]{qr_code, scanned_out, scanned_in, ...}`.
@@ -72,7 +82,7 @@
 | Метод | Тело | Назначение |
 |---|---|---|
 | `PUT clients/{guid}` | `full_name`, `phone`, `email`, `consent_sms`, `client_id`? | Создать/обновить контрагента. `client_id` — связать с клиентом, созданным в магазине |
-| `PUT services/{guid}` | `code`, `name`, `price`, `period` (season/month), `months`, `is_active` | Тариф хранения (услуга 1С) |
+| `PUT services/{guid}` | `code`, `name`, `price`, `period` (season/month), `months`, `is_active`, `diameter_from`, `diameter_to` | Услуга хранения 1С. Ищется по guid, затем по коду: так 1С обновляет цену строки прайса (ЦБ…); диаметры, если не переданы, не меняются |
 | `PUT locations/{guid}` | `code`, `name`, `type` (store/warehouse), `address` | Магазин или склад (код склада — 2 цифры, магазина — `М` + цифры) |
 
 ## Запросы из 1С

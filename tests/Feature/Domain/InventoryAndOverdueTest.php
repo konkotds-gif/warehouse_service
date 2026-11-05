@@ -133,12 +133,12 @@ class InventoryAndOverdueTest extends TestCase
 
     public function test_extend_contract(): void
     {
-        $tariff = $this->tariff();
-        $contract = $this->accept($this->store(), ['tariff_id' => $tariff->id]);
+        $contract = $this->accept($this->store(), ['months' => 6]);
         $before = $contract->storage_until->copy();
-        app(ContractService::class)->extend($contract, 6);
+        app(ContractService::class)->extend($contract, 2);
         $this->assertTrue($contract->fresh()->storage_until->gt($before));
-        $this->assertEquals(9600, (float) $contract->fresh()->amount);
+        $this->assertEquals(2880 + 960, (float) $contract->fresh()->amount, 'продление R16: 120 × 4 × 2');
+        $this->assertSame(8, $contract->fresh()->months);
         $this->assertTrue(OutboxEvent::where('event_type', 'contract.extended')->exists());
     }
 }

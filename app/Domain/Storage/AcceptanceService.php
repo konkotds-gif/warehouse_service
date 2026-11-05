@@ -10,7 +10,6 @@ use App\Models\Client;
 use App\Models\GarageSet;
 use App\Models\Location;
 use App\Models\StorageContract;
-use App\Models\Tariff;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\WheelSet;
@@ -25,13 +24,14 @@ final class AcceptanceService
         private readonly NumberGenerator $numbers,
         private readonly SetMover $mover,
         private readonly Outbox $outbox,
+        private readonly Pricing $pricing,
     ) {}
 
     /**
      * @param  array{
      *   client_id?: string|null, client?: array{full_name: string, phone?: string|null, email?: string|null, consent_sms?: bool, consent_pd?: bool}|null,
      *   vehicle_id?: string|null, vehicle?: array{plate?: string|null, no_plate?: bool, make: string, model: string}|null,
-     *   store_id: int, tariff_id?: int|null, months?: int|null, notes?: string|null,
+     *   store_id: int, months?: int|null, notes?: string|null,
      *   sets: list<array{garage_set_id?: string|null, title?: string|null, qty: int, tire_size: string, with_rims: bool,
      *          condition: string, season?: string|null, brand_model?: string|null, damages?: list<string>, notes?: string|null}>
      * }  $data
@@ -50,25 +50,31 @@ final class AcceptanceService
 
             $client = $this->resolveClient($data);
             $vehicle = $this->resolveVehicle($client, $data);
-            $tariff = ! empty($data['tariff_id']) ? Tariff::findOrFail($data['tariff_id']) : null;
-            $months = (int) ($data['months'] ?? $tariff?->months ?? 6);
+            $months = $this->pricing->validateMonths((int) ($data['months'] ?? min(6, Pricing::settings()['max_months'])));
+            // Цена по диаметру каждого комплекта; проверяем до создания договора
+            $lines = array_map(function ($d) use ($months) {
+                $attrs = $this->validateSet($d);
+
+                return $this->pricing->line($attrs['tire_size'], $attrs['qty'], $months);
+            }, array_values($data['sets']));
 
             $contract = StorageContract::create([
                 'number' => $this->numbers->contractNumber(),
                 'client_id' => $client->id,
                 'vehicle_id' => $vehicle->id,
                 'store_id' => $store->id,
-                'tariff_id' => $tariff?->id,
+                'tariff_id' => $lines[0]['tariff']->id,
                 'accepted_by' => $user?->id,
                 'accepted_at' => now(),
-                'storage_until' => now()->addMonthsNoOverflow(max(1, $months))->toDateString(),
-                'amount' => $this->amount($tariff, $months),
+                'storage_until' => now()->addMonthsNoOverflow($months)->toDateString(),
+                'months' => $months,
+                'amount' => array_sum(array_column($lines, 'amount')),
                 'status' => ContractStatus::Open,
                 'notes' => $data['notes'] ?? null,
             ]);
 
             foreach (array_values($data['sets']) as $i => $setData) {
-                $this->acceptSet($contract, $vehicle, $store, $setData, $i);
+                $this->acceptSet($contract, $vehicle, $store, $setData, $i, $lines[$i]);
             }
 
             $contract->load('sets');
@@ -78,7 +84,7 @@ final class AcceptanceService
         });
     }
 
-    private function acceptSet(StorageContract $contract, Vehicle $vehicle, Location $store, array $d, int $index): WheelSet
+    private function acceptSet(StorageContract $contract, Vehicle $vehicle, Location $store, array $d, int $index, array $line): WheelSet
     {
         $attrs = $this->validateSet($d);
 
@@ -110,6 +116,9 @@ final class AcceptanceService
         $set = WheelSet::create($attrs + [
             'garage_set_id' => $garage->id,
             'contract_id' => $contract->id,
+            'tariff_id' => $line['tariff']->id,
+            'price' => $line['price'],
+            'amount' => $line['amount'],
             'qr_code' => $index === 0 ? $contract->number : $contract->number.'/'.($index + 1),
             'status' => SetStatus::Accepted,
             'current_location_id' => $store->id,
@@ -215,15 +224,6 @@ final class AcceptanceService
         return $existing ?? $client->vehicles()->create([
             'plate' => $plate, 'make' => trim($v['make']), 'model' => trim($v['model']),
         ]);
-    }
-
-    private function amount(?Tariff $tariff, int $months): float
-    {
-        if (! $tariff) {
-            return 0;
-        }
-
-        return $tariff->period === 'month' ? (float) $tariff->price * $months : (float) $tariff->price;
     }
 
     private function defaultTitle(array $attrs): string

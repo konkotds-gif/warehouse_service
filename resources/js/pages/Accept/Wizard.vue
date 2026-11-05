@@ -13,7 +13,7 @@ import { splitBrandModel, joinBrandModel } from '../../lib/tires';
 import { getJson } from '../../lib/http';
 import { phone as fmtPhone, money } from '../../lib/format';
 
-const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Array, client: Object, garage: Array, preselect: Object, tireBrands: { type: Array, default: () => [] } });
+const props = defineProps({ stores: Array, defaultStoreId: Number, prices: { type: Array, default: () => [] }, pricing: Object, client: Object, garage: Array, preselect: Object, tireBrands: { type: Array, default: () => [] } });
 const seasons = usePage().props.dict.seasons;
 const DAMAGES = usePage().props.dict.damages || [];
 const DEFAULT_DAMAGES = DAMAGES.filter((x) => x.default).map((x) => x.value);
@@ -58,8 +58,7 @@ const fromGarage = (prefill) => {
 };
 const form = useForm({
     store_id: props.defaultStoreId || props.stores[0]?.id || null,
-    tariff_id: (props.tariffs.find((t) => t.period === 'season') || props.tariffs[0])?.id || null,
-    months: (props.tariffs.find((t) => t.period === 'season') || props.tariffs[0])?.months || 6,
+    months: Math.min(6, props.pricing?.max_months || 7),
     notes: '',
     sets: [blank()],
 });
@@ -74,10 +73,6 @@ if (props.preselect?.garage_set_id) {
     const g = props.garage.flatMap((v) => v.garage_sets).find((x) => x.id === props.preselect.garage_set_id);
     if (g && !g.active_set) form.sets = [fromGarage(g.prefill)];
 }
-watch(() => form.tariff_id, (id) => {
-    const t = props.tariffs.find((x) => x.id === id);
-    if (t) form.months = t.months;
-});
 
 const sizeRe = /^(\d{3})\s*\/\s*(\d{2})\s*(Z?R)\s*(\d{2}(\.5)?C?)(\s*\d{2,3}(\/\d{2,3})?\s*[A-Za-z])?$|^\d{2}\s*[xXхХ]\s*\d{1,2}(\.\d{1,2})?\s*R\s*\d{2}(\s*\d{2,3}\s*[A-Za-z])?$/i;
 function setErrors(s) {
@@ -101,11 +96,24 @@ const damageLabels = (s) => damagesFor(s).filter((x) => s.damages.includes(x.val
 const canNext = computed(() => {
     if (step.value === 0) return props.client || (isNewClient.value && newClient.full_name.trim() && phoneComplete(newClient.phone));
     if (step.value === 1) return isNewVehicle.value ? plateOk.value && newVehicle.make.trim() && newVehicle.model.trim() : !!vehicleId.value;
-    if (step.value === 2) return form.store_id && form.sets.every((s) => setErrors(s).length === 0);
+    if (step.value === 2) return form.store_id && form.sets.every((s) => setErrors(s).length === 0) && !missingPrice.value;
     return true;
 });
 const totalWheels = computed(() => form.sets.reduce((a, s) => a + Number(s.qty || 0), 0));
-const tariff = computed(() => props.tariffs.find((t) => t.id === form.tariff_id));
+// Стоимость: цена за колесо в месяц по диаметру × колёса × месяцы
+const monthOptions = computed(() => Array.from({ length: props.pricing?.max_months || 7 }, (_, i) => i + 1));
+function diameterOf(size) {
+    const m = /Z?R\s*(\d{2})(?:[.,]5)?C?\b/i.exec(size || '');
+    return m ? Number(m[1]) : null;
+}
+function priceLine(s) {
+    const d = diameterOf(s.tire_size);
+    const t = d ? props.prices.find((p) => d >= p.diameter_from && d <= (p.diameter_to || p.diameter_from)) : null;
+    return { diameter: d, tariff: t, price: t ? Number(t.price) : null, amount: t ? Number(t.price) * Number(s.qty || 0) * form.months : null };
+}
+const lines = computed(() => form.sets.map(priceLine));
+const total = computed(() => lines.value.reduce((a, l) => a + (l.amount || 0), 0));
+const missingPrice = computed(() => lines.value.find((l) => l.diameter && !l.tariff));
 
 function submit() {
     form.transform((data) => ({
@@ -218,12 +226,16 @@ const allErrors = computed(() => Object.values(form.errors));
 
     <!-- 3. Комплект -->
     <section v-if="step === 2" class="grid gap-4">
-        <div class="card p-5 sm:p-6 grid gap-4 sm:grid-cols-3">
+        <div class="card p-5 sm:p-6 grid gap-4 sm:grid-cols-[1fr_2fr]">
             <div><label class="label">Магазин приёма</label>
                 <select v-model="form.store_id" class="input"><option v-for="s in stores" :key="s.id" :value="s.id">{{ s.label }}</option></select></div>
-            <div><label class="label">Тариф</label>
-                <select v-model="form.tariff_id" class="input"><option :value="null">Без тарифа</option><option v-for="t in tariffs" :key="t.id" :value="t.id">{{ t.name }} — {{ money(t.price) }}</option></select></div>
-            <div><label class="label">Срок, мес.</label><input v-model.number="form.months" type="number" min="1" max="24" class="input" /></div>
+            <div>
+                <label class="label">Срок хранения, мес.</label>
+                <div class="seg w-full grid" :style="{ gridTemplateColumns: `repeat(${monthOptions.length}, minmax(0, 1fr))` }">
+                    <button v-for="m in monthOptions" :key="m" type="button" class="tabular" :class="{ on: form.months === m }" @click="form.months = m">{{ m }}</button>
+                </div>
+                <div class="error" v-if="form.errors.months">{{ form.errors.months }}</div>
+            </div>
         </div>
 
         <div v-for="(s, i) in form.sets" :key="i" class="card p-5 sm:p-6">
@@ -268,6 +280,12 @@ const allErrors = computed(() => Object.values(form.errors));
                 </div>
                 <div class="sm:col-span-2"><label class="label">{{ s.condition === 'used' ? 'Комментарий к повреждениям' : 'Комментарий' }}</label><input v-model="s.notes" class="input" placeholder="Например: порез на левом заднем" /></div>
             </div>
+            <div v-if="lines[i].tariff" class="mt-4 rounded-[12px] bg-bg px-4 py-3 flex flex-wrap items-baseline gap-x-2">
+                <span class="text-ink-500">Хранение R{{ lines[i].diameter }}:</span>
+                <span class="tabular">{{ money(lines[i].price) }} × {{ s.qty }} кол. × {{ form.months }} мес. =</span>
+                <b class="tabular text-lg">{{ money(lines[i].amount) }}</b>
+            </div>
+            <div v-else-if="lines[i].diameter" class="mt-4 rounded-[12px] bg-red-50 px-4 py-3 text-sm text-red-600">Нет цены хранения для R{{ lines[i].diameter }} — администратор добавляет её в «Тарифах».</div>
             <div v-if="setErrors(s).length" class="mt-3 text-sm text-ink-500">Осталось указать: {{ setErrors(s).join(', ') }}</div>
         </div>
         <button v-if="form.sets.length < 4" class="btn-secondary justify-self-start" @click="form.sets.push(blank())"><Icon name="accept" :size="18" /> Ещё комплект по этому договору</button>
@@ -279,14 +297,19 @@ const allErrors = computed(() => Object.values(form.errors));
             <div><dt class="text-sm text-ink-500">Клиент</dt><dd class="font-semibold">{{ client?.full_name || newClient.full_name }} · {{ fmtPhone(client?.phone) !== '—' ? fmtPhone(client?.phone) : newClient.phone }}</dd></div>
             <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate_mode === 'none' ? 'без номера' : newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${displayPlate(selectedVehicle?.plate)}` }}</dd></div>
             <div><dt class="text-sm text-ink-500">Магазин приёма</dt><dd class="font-semibold">{{ stores.find((s) => s.id === form.store_id)?.label }}</dd></div>
-            <div><dt class="text-sm text-ink-500">Тариф и срок</dt><dd class="font-semibold">{{ tariff ? `${tariff.name}, ${money(tariff.period === 'month' ? tariff.price * form.months : tariff.price)}` : 'без тарифа' }} · {{ form.months }} мес.</dd></div>
+            <div><dt class="text-sm text-ink-500">Срок и стоимость хранения</dt><dd class="font-semibold">{{ form.months }} мес. · <span class="tabular">{{ money(total) }}</span></dd></div>
         </dl>
         <div class="mt-4 rounded-[12px] bg-bg p-4" v-for="(s, i) in form.sets" :key="i">
             <b>{{ s.qty }} шт</b> · {{ s.tire_size.toUpperCase() }} · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition === 'new' ? 'НОВЫЕ' : 'БУ' }}
             <span v-if="s.season" class="text-ink-500"> · {{ seasons.find((x) => x.value === s.season)?.label }}</span>
             <span v-if="s.brand || s.model" class="text-ink-500"> · {{ joinBrandModel(s.brand, s.model) }}</span>
             <div v-if="s.condition === 'used' && damageLabels(s).length" class="text-sm text-ink-500 mt-1">Повреждения: {{ damageLabels(s).join(', ') }}</div>
+            <div v-if="lines[i].tariff" class="text-sm mt-1"><span class="text-ink-500">{{ lines[i].tariff.code }} · {{ money(lines[i].price) }} × {{ s.qty }} кол. × {{ form.months }} мес. =</span> <b class="tabular">{{ money(lines[i].amount) }}</b></div>
         </div>
+        <div class="mt-4 flex items-baseline justify-between rounded-[12px] border border-line px-4 py-3">
+            <span class="font-semibold">Итого к оплате за хранение</span><b class="text-2xl tabular">{{ money(total) }}</b>
+        </div>
+        <p class="mt-2 text-sm text-ink-500">После окончания срока — {{ pricing.free_days }} дн. бесплатно, затем {{ money(pricing.overdue_rate) }} в день{{ pricing.overdue_per === 'wheel' ? ' за каждое колесо' : '' }}.</p>
         <div class="mt-4"><label class="label">Комментарий к договору</label><input v-model="form.notes" class="input" /></div>
         <p class="mt-4 text-sm text-ink-500">После оформления откроется печать: {{ totalWheels }} бирок с одинаковым QR (номер договора) и квитанция клиенту.</p>
     </section>

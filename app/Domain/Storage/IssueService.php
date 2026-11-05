@@ -26,6 +26,7 @@ final class IssueService
         private readonly Outbox $outbox,
         private readonly ScanResolver $resolver,
         private readonly Sms $sms,
+        private readonly Pricing $pricing,
     ) {}
 
     /** Заказ к выдаче в магазине $store к дате $date. */
@@ -94,7 +95,7 @@ final class IssueService
     /**
      * Проверка долга по данным 1С.
      *
-     * @return array{blocked: bool, debt: float, warnings: list<string>}
+     * @return array{blocked: bool, debt: float, warnings: list<string>, overdue: array<string, mixed>}
      */
     public function debtCheck(StorageContract $contract): array
     {
@@ -106,8 +107,15 @@ final class IssueService
         } elseif ($contract->debt_updated_at->lt(now()->subHours($fresh))) {
             $warnings[] = 'Данные о долге из 1С устарели (обновлены '.$contract->debt_updated_at->timezone(config('app.display_timezone'))->format('d.m.Y H:i').')';
         }
-        if ($contract->status === ContractStatus::Overdue) {
-            $warnings[] = 'Срок хранения истёк — возможна доплата за продление';
+        $overdue = $this->pricing->overdue($contract);
+        if ($overdue['due'] > 0) {
+            $warnings[] = sprintf('Хранение после срока: %d дн. × %s ₽%s = %s ₽ (бесплатно до %s) — оплатить в кассе',
+                $overdue['days'], number_format($overdue['rate'], 0, ',', ' '),
+                $overdue['per'] === 'wheel' ? " × {$overdue['wheels']} кол." : '',
+                number_format($overdue['due'], 2, ',', ' '), Carbon::parse($overdue['free_until'])->format('d.m.Y'));
+        } elseif ($overdue['ends_at'] && $overdue['free_until'] && now()->startOfDay()->gt(Carbon::parse($overdue['ends_at']))) {
+            $warnings[] = 'Срок хранения истёк '.Carbon::parse($overdue['ends_at'])->format('d.m.Y')
+                .' — бесплатно забрать до '.Carbon::parse($overdue['free_until'])->format('d.m.Y');
         }
         if ($debt > 0) {
             $warnings[] = 'Долг по договору: '.number_format($debt, 2, ',', ' ').' ₽';
@@ -117,6 +125,7 @@ final class IssueService
             'blocked' => $debt > 0 && (bool) config('storage.block_issue_on_debt', true),
             'debt' => $debt,
             'warnings' => $warnings,
+            'overdue' => $overdue,
         ];
     }
 
@@ -143,6 +152,12 @@ final class IssueService
                 throw new DomainError('Выдача заблокирована: долг по договору '.number_format($check['debt'], 2, ',', ' ').' ₽ (данные 1С)');
             }
 
+            // Плата за дни после срока и бесплатного периода — начисляется по договору один раз (накопительно)
+            $overdue = $this->pricing->overdue($contract);
+            if ($overdue['due'] > 0) {
+                $contract->update(['overdue_fee' => $overdue['amount'], 'overdue_days' => $overdue['days']]);
+            }
+
             $this->mover->confirmQty($set, $qty, 'Выдача');
             $this->mover->transition($set, SetStatus::Issued, 'issue', [
                 'current_cell_id' => null,
@@ -160,6 +175,13 @@ final class IssueService
                 'client_onec_guid' => $contract->client?->onec_guid,
                 'store_code' => $set->issueStore?->code ?? $user?->location?->code,
                 'issued_at' => now()->toIso8601String(),
+                'overdue' => $overdue['due'] > 0 ? [
+                    'service_code' => Pricing::settings()['overdue_service_code'],
+                    'days' => $overdue['days'],
+                    'rate' => $overdue['rate'],
+                    'per' => $overdue['per'],
+                    'amount' => $overdue['due'],
+                ] : null,
             ] + $this->outbox->setPayload($set));
 
             $stillActive = $contract->sets()->whereIn('status', SetStatus::activeValues())->exists();
