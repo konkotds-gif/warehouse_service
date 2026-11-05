@@ -124,12 +124,11 @@ class ContractController extends Controller
             : back()->withErrors(['code' => 'Код не отправлен: '.$code->error])->with('error', 'Код не отправлен: '.$code->error);
     }
 
-    /** Закрыть договор: код из SMS (или причина без кода), скан бирки, отметка об оплате просрочки. */
+    /** Закрыть договор: код из SMS (или причина без кода), отметка об оплате просрочки. */
     public function close(Request $request, StorageContract $contract, ContractClosing $closing): RedirectResponse
     {
         $data = $request->validate([
             'code' => ['nullable', 'string', 'max:12'],
-            'tag' => ['nullable', 'string', 'max:64'],
             'paid' => ['nullable', 'boolean'],
             'reason' => ['nullable', 'string', 'max:200'],
         ]);

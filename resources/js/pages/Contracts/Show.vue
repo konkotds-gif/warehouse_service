@@ -93,7 +93,7 @@ const lastDelivery = computed(() => props.confirmation?.log.find((l) => !l.error
 // Закрытие договора: выдача оставшихся комплектов + код из SMS + доплата за просрочку
 const activeStatuses = ['accepted', 'in_transit', 'received', 'placed', 'ordered', 'ready', 'lost'];
 const closeViaSms = computed(() => props.closing?.requires_code);
-const closeForm = useForm({ code: '', tag: '', paid: false, reason: '' });
+const closeForm = useForm({ code: '', paid: false, reason: '' });
 const showClose = ref(false);
 const closeOverride = ref(false);
 const closeSending = ref(false);
@@ -123,7 +123,6 @@ const closeCodeSent = computed(() => !!props.closing?.sms?.expires_at);
 const canSubmitClose = computed(() => {
     const c = props.closing;
     if (!c?.can_close || closeForm.processing) return false;
-    if (c.to_issue.length && !closeForm.tag) return false;
     if (c.due > 0 && !closeForm.paid) return false;
     if (!c.requires_code) return true;
     return closeOverride.value ? closeForm.reason.trim().length >= 5 : closeForm.code.length >= props.confirmation.code_length;
@@ -131,7 +130,7 @@ const canSubmitClose = computed(() => {
 const submitClose = () => closeForm
     .transform((d) => ({ ...d, code: closeOverride.value ? '' : d.code, reason: closeOverride.value ? d.reason : '' }))
     .post(`/contracts/${props.contract.id}/close`, { preserveScroll: true, onSuccess: () => (showClose.value = false) });
-const closeError = computed(() => closeForm.errors.code || closeForm.errors.tag || closeForm.errors.paid || closeForm.errors.reason || closeForm.errors.domain);
+const closeError = computed(() => closeForm.errors.code || closeForm.errors.paid || closeForm.errors.reason || closeForm.errors.domain);
 if (props.autoClose && props.closing && !props.closing.closed) setTimeout(openClose);
 
 // Списание
@@ -403,9 +402,7 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 </label>
 
                 <template v-if="closing.to_issue.length">
-                    <div class="mt-4 text-sm">Выдаём: <b class="tabular">{{ closing.to_issue.map((s) => `${s.qr_code} (${s.qty} шт)`).join(', ') }}</b><template v-if="closing.issued"> · выдано раньше: {{ closing.issued }}</template></div>
-                    <label class="label mt-2">Отсканируйте QR на бирке колеса</label>
-                    <input v-model="closeForm.tag" class="input input-lg tabular" placeholder="QR бирки" />
+                    <div class="mt-4 text-sm">Выдаём: <b class="tabular">{{ closing.to_issue.map((s) => `${s.qr_code} (${s.qty} шт)`).join(', ') }}</b><template v-if="closing.issued"> · выдано раньше: {{ closing.issued }}</template> — колёса уже в магазине, сканировать бирку не нужно.</div>
                 </template>
                 <div v-else class="mt-4 text-sm text-ink-500">Все комплекты уже выданы — осталось закрыть договор.</div>
 

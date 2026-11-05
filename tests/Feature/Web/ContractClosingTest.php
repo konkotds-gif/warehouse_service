@@ -87,13 +87,13 @@ class ContractClosingTest extends TestCase
         $wrong = $code === '0000' ? '1111' : '0000';
 
         // Без отметки об оплате просрочки не закрываем
-        $this->post("/contracts/{$contract->id}/close", ['code' => $code, 'tag' => $contract->number])->assertSessionHasErrors('paid');
+        $this->post("/contracts/{$contract->id}/close", ['code' => $code])->assertSessionHasErrors('paid');
         // Неверный код: попытка сохраняется
-        $this->post("/contracts/{$contract->id}/close", ['code' => $wrong, 'tag' => $contract->number, 'paid' => 1])->assertSessionHasErrors('code');
+        $this->post("/contracts/{$contract->id}/close", ['code' => $wrong, 'paid' => 1])->assertSessionHasErrors('code');
         $this->assertSame(1, ContractSmsCode::where('purpose', 'close')->first()->attempts);
         $this->assertSame(ContractStatus::Open, $contract->fresh()->status);
 
-        $this->post("/contracts/{$contract->id}/close", ['code' => $code, 'tag' => $contract->number, 'paid' => 1])
+        $this->post("/contracts/{$contract->id}/close", ['code' => $code, 'paid' => 1])
             ->assertSessionHasNoErrors()->assertSessionHas('success', fn ($m) => str_contains($m, '90,00'));
 
         $contract->refresh();
@@ -126,7 +126,7 @@ class ContractClosingTest extends TestCase
         $this->get("/contracts/{$contract->id}")->assertInertia(fn (Assert $p) => $p->where('closing.can_close', false)
             ->where('closing.blockers.0', fn ($b) => str_contains($b, 'закажите его к выдаче')));
         $this->post("/contracts/{$contract->id}/close-code")->assertSessionHasErrors('domain');
-        $this->post("/contracts/{$contract->id}/close", ['code' => '1234', 'tag' => $contract->number])->assertSessionHasErrors('domain');
+        $this->post("/contracts/{$contract->id}/close", ['code' => '1234'])->assertSessionHasErrors('domain');
         $this->assertSame(ContractStatus::Open, $contract->fresh()->status);
     }
 
@@ -134,12 +134,12 @@ class ContractClosingTest extends TestCase
     {
         [$contract, $seller, $store] = $this->readyContract();
 
-        $this->actingAs($seller)->post("/contracts/{$contract->id}/close", ['tag' => $contract->number, 'reason' => 'SMS не доходит'])
+        $this->actingAs($seller)->post("/contracts/{$contract->id}/close", ['reason' => 'SMS не доходит'])
             ->assertSessionHasErrors('domain');
         $this->assertSame(ContractStatus::Open, $contract->fresh()->status);
 
         $manager = $this->user(Role::StoreManager, $store);
-        $this->actingAs($manager)->post("/contracts/{$contract->id}/close", ['tag' => $contract->number, 'reason' => 'SMS не доходит'])
+        $this->actingAs($manager)->post("/contracts/{$contract->id}/close", ['reason' => 'SMS не доходит'])
             ->assertSessionHasNoErrors();
         $contract->refresh();
         $this->assertSame(ContractStatus::Closed, $contract->status);
@@ -161,16 +161,13 @@ class ContractClosingTest extends TestCase
         $this->assertSame($seller->id, $contract->closed_by);
     }
 
-    public function test_wrong_tag_is_rejected_and_nothing_closes(): void
+    public function test_close_issues_ready_sets_without_tag_scan(): void
     {
         [$contract, $seller] = $this->readyContract();
         $this->actingAs($seller)->post("/contracts/{$contract->id}/close-code");
-        $code = $this->lastCode();
 
-        $this->post("/contracts/{$contract->id}/close", ['code' => $code, 'tag' => '999999'])->assertSessionHasErrors('domain');
-        $this->assertSame(ContractStatus::Open, $contract->fresh()->status);
-        // Код не погашен — после исправления скана закрытие проходит тем же кодом
-        $this->post("/contracts/{$contract->id}/close", ['code' => $code, 'tag' => $contract->number])->assertSessionHasNoErrors();
+        $this->post("/contracts/{$contract->id}/close", ['code' => $this->lastCode()])->assertSessionHasNoErrors();
         $this->assertSame(ContractStatus::Closed, StorageContract::find($contract->id)->status);
+        $this->assertSame(SetStatus::Issued, $this->firstSet($contract)->fresh()->status);
     }
 }
