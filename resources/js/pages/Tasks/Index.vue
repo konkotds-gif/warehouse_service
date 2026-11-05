@@ -16,6 +16,7 @@ const go = (patch) => router.get('/tasks', { ...props.filters, ...patch, locatio
         <LocationPicker v-if="can('reports')" :locations="locations" :current="location" />
     </PageHeader>
     <div class="flex flex-wrap gap-2 mb-4">
+        <div v-if="can('transfers')" class="seg"><button class="on">Задания</button><Link href="/tasks/transport">Перевозки</Link></div>
         <div class="seg"><button v-for="(l, k) in types" :key="k" :class="{ on: (filters.type || '') === k }" @click="go({ type: k || undefined })">{{ l }}</button></div>
         <div class="seg"><button :class="{ on: filters.status === 'open' }" @click="go({ status: 'open' })">Открытые</button><button :class="{ on: filters.status === 'done' }" @click="go({ status: 'done' })">Выполненные</button></div>
     </div>

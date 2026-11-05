@@ -10,6 +10,7 @@ use App\Models\Movement;
 use App\Models\StorageContract;
 use App\Models\Task;
 use App\Models\Transfer;
+use App\Models\Trip;
 use App\Models\Vehicle;
 use App\Models\WheelSet;
 
@@ -154,15 +155,35 @@ final class Present
             'driver' => $t->driver, 'created_at' => $t->created_at?->toIso8601String(),
             'shipped_at' => $t->shipped_at?->toIso8601String(), 'received_at' => $t->received_at?->toIso8601String(),
             'lines_count' => $t->lines_count ?? ($t->relationLoaded('lines') ? $t->lines->count() : null),
+            'notes' => $t->notes, 'trip_id' => $t->trip_id,
+            'trip' => $t->relationLoaded('trip') && $t->trip ? ['id' => $t->trip->id, 'number' => $t->trip->number, 'status' => $t->trip->status->value] : null,
         ];
         if ($lines) {
             $data['lines'] = $t->lines->map(fn ($l) => [
                 'id' => $l->id, 'scanned_out' => $l->scanned_out, 'scanned_in' => $l->scanned_in,
                 'qty_out' => $l->qty_out, 'qty_in' => $l->qty_in, 'set' => self::set($l->wheelSet),
+                'client' => $l->wheelSet->relationLoaded('contract') && $l->wheelSet->contract?->relationLoaded('client') ? $l->wheelSet->contract->client?->full_name : null,
             ])->all();
+            $data['contracts_count'] = $t->lines->pluck('wheelSet.contract_id')->unique()->count();
+            $data['wheels'] = $t->lines->sum(fn ($l) => $l->wheelSet->qty);
         }
 
         return $data;
+    }
+
+    public static function trip(Trip $t, bool $full = false): array
+    {
+        $transfers = $t->relationLoaded('transfers') ? $t->transfers->sortBy('number')->values() : collect();
+
+        return [
+            'id' => $t->id, 'number' => $t->number, 'status' => $t->status->value, 'status_label' => $t->status->label(),
+            'driver' => $t->driver, 'vehicle' => $t->vehicle, 'author' => $t->relationLoaded('author') ? $t->author?->name : null,
+            'created_at' => $t->created_at?->toIso8601String(), 'shipped_at' => $t->shipped_at?->toIso8601String(),
+            'completed_at' => $t->completed_at?->toIso8601String(),
+            'transfers_count' => $t->transfers_count ?? $transfers->count(),
+            'route' => $transfers->map(fn ($tr) => ($tr->from?->code ?? '?').' → '.($tr->to?->code ?? '?'))->unique()->values()->all(),
+            'transfers' => $full ? $transfers->map(fn ($tr) => self::transfer($tr, true))->all() : null,
+        ];
     }
 
     public static function task(Task $t): array

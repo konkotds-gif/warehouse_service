@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Support\DomainError;
 use App\Domain\Transfer\TransferService;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
 use App\Models\Location;
 use App\Models\Transfer;
+use App\Models\TransferLine;
 use App\Models\WheelSet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -21,10 +23,11 @@ class TransferController extends Controller
     public function index(Request $request): Response
     {
         $location = $this->currentLocation($request);
-        $transfers = Transfer::with(['from', 'to'])->withCount('lines')
+        $transfers = Transfer::with(['from', 'to', 'trip'])->withCount('lines')
             ->when($location, fn ($q) => $q->where(fn ($q) => $q->where('from_location_id', $location->id)->orWhere('to_location_id', $location->id)))
             ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('created_at')->paginate(30)->withQueryString();
+            // Незавершённые (ожидают погрузки) — сверху, чтобы к ним было легко вернуться
+            ->orderByRaw("status = 'created' DESC")->orderByDesc('created_at')->paginate(30)->withQueryString();
 
         return Inertia::render('Transfers/Index', [
             'transfers' => $transfers->through(fn ($t) => Present::transfer($t)),
@@ -36,8 +39,9 @@ class TransferController extends Controller
 
     public function create(Request $request, TransferService $service): Response
     {
-        $from = $request->filled('from') ? Location::find($request->integer('from')) : $request->user()->location;
-        $to = $request->filled('to') ? Location::find($request->integer('to')) : null;
+        $target = $request->filled('transfer') ? Transfer::with(['from', 'to'])->find($request->query('transfer')) : null;
+        $from = $target?->from ?? ($request->filled('from') ? Location::find($request->integer('from')) : $request->user()->location);
+        $to = $target?->to ?? ($request->filled('to') ? Location::find($request->integer('to')) : null);
         $candidates = collect();
         if ($from) {
             $candidates = $service->bufferCandidates($from)
@@ -53,6 +57,11 @@ class TransferController extends Controller
             'from' => Present::location($from),
             'to' => Present::location($to),
             'candidates' => $candidates->map(fn ($s) => Present::set($s))->values()->all(),
+            'target' => $target && $target->status->value === 'created' ? Present::transfer($target) : null,
+            // Уже созданные и не отгруженные перемещения из этой точки — можно дополнить, а не плодить новые
+            'drafts' => $from ? Transfer::with(['from', 'to', 'trip'])->withCount('lines')->where('status', 'created')
+                ->where('from_location_id', $from->id)->when($target, fn ($q) => $q->whereKeyNot($target->id))
+                ->orderByDesc('created_at')->limit(20)->get()->map(fn ($t) => Present::transfer($t))->all() : [],
         ]);
     }
 
@@ -65,18 +74,37 @@ class TransferController extends Controller
         $transfer = $service->create(Location::findOrFail($data['from_location_id']), Location::findOrFail($data['to_location_id']),
             $data['set_ids'], $request->user(), $data['driver'] ?? null);
 
-        return redirect()->route('transfers.show', $transfer)->with('success', "Перемещение {$transfer->number} создано. Сканируйте бирки при погрузке.");
+        return redirect()->route('transfers.show', $transfer)
+            ->with('success', "Перемещение {$transfer->number} создано и ждёт водителя в «Задания → Перевозки». Бирки сканируются при погрузке.");
+    }
+
+    public function addSets(Request $request, Transfer $transfer, TransferService $service): RedirectResponse
+    {
+        $data = $request->validate(['set_ids' => ['required', 'array', 'min:1'], 'set_ids.*' => ['uuid']]);
+        $service->addSets($transfer, $data['set_ids']);
+
+        return redirect()->route('transfers.show', $transfer)->with('success', 'Комплекты добавлены в перемещение');
+    }
+
+    public function removeLine(Transfer $transfer, TransferLine $line, TransferService $service): RedirectResponse
+    {
+        $transfer = $service->removeLine($transfer, $line);
+
+        return $transfer->status->value === 'cancelled'
+            ? redirect()->route('transfers.index')->with('success', "Перемещение {$transfer->number} стало пустым и отменено")
+            : back()->with('success', 'Комплект убран из перемещения');
     }
 
     public function show(Transfer $transfer): Response
     {
-        $transfer->load(['from', 'to', 'lines.wheelSet.contract.vehicle', 'lines.wheelSet.cell', 'lines.wheelSet.location', 'lines.wheelSet.transfer']);
+        $transfer->load(['from', 'to', 'trip', 'lines.wheelSet.contract.client', 'lines.wheelSet.contract.vehicle', 'lines.wheelSet.cell', 'lines.wheelSet.location', 'lines.wheelSet.transfer']);
 
         return Inertia::render('Transfers/Show', ['transfer' => Present::transfer($transfer, true)]);
     }
 
     public function scanOut(Request $request, Transfer $transfer, TransferService $service): JsonResponse
     {
+        $this->guardTrip($transfer);
         $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
         $line = $service->scanOut($transfer, $data['code'], $data['qty'] ?? null);
 
@@ -85,6 +113,7 @@ class TransferController extends Controller
 
     public function ship(Request $request, Transfer $transfer, TransferService $service): RedirectResponse
     {
+        $this->guardTrip($transfer);
         $service->ship($transfer, $request->input('driver'));
 
         return back()->with('success', 'Перемещение отгружено — комплекты в пути');
@@ -112,5 +141,13 @@ class TransferController extends Controller
         $service->cancel($transfer);
 
         return back()->with('success', 'Перемещение отменено');
+    }
+
+    /** Перемещение в ведомости грузится и отгружается только целиком по ведомости. */
+    private function guardTrip(Transfer $transfer): void
+    {
+        if ($transfer->trip_id && $transfer->status->value === 'created') {
+            throw new DomainError("Перемещение в ведомости {$transfer->trip->number} — погрузка на экране ведомости");
+        }
     }
 }

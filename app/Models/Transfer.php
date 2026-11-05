@@ -13,7 +13,7 @@ class Transfer extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['number', 'from_location_id', 'to_location_id', 'status', 'purpose', 'driver',
+    protected $fillable = ['number', 'from_location_id', 'to_location_id', 'status', 'purpose', 'driver', 'trip_id',
         'created_by', 'shipped_at', 'received_at', 'notes'];
 
     protected function casts(): array
@@ -34,6 +34,11 @@ class Transfer extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(TransferLine::class);
+    }
+
+    public function trip(): BelongsTo
+    {
+        return $this->belongsTo(Trip::class);
     }
 
     public function author(): BelongsTo
