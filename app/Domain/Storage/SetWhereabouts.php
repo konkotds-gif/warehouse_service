@@ -63,7 +63,7 @@ class SetWhereabouts
     {
         $cell = $set->cell;
         $base = [
-            'address' => $set->currentAddress(),
+            'address' => $set->displayAddress(),
             'location' => null,
             'row' => null,
             'cell' => null,
