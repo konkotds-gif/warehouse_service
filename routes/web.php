@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\Web\AcceptController;
 use App\Http\Controllers\Web\Admin\IntegrationController;
+use App\Http\Controllers\Web\Admin\SettingsController;
 use App\Http\Controllers\Web\Admin\TariffController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\AuthController;
+use App\Http\Controllers\Web\CarCatalogController;
 use App\Http\Controllers\Web\ClientController;
 use App\Http\Controllers\Web\ContractController;
 use App\Http\Controllers\Web\DashboardController;
@@ -30,6 +32,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/', DashboardController::class)->name('dashboard');
     Route::get('/search', [SearchController::class, 'index'])->middleware('can:search')->name('search');
+
+    // Справочник авто для селектов марки/модели
+    Route::get('/w/car-makes', [CarCatalogController::class, 'makes'])->name('cars.makes');
+    Route::get('/w/car-models', [CarCatalogController::class, 'models'])->name('cars.models');
 
     // Клиенты и гараж
     Route::middleware('can:clients')->group(function () {
@@ -120,5 +126,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/integration', [IntegrationController::class, 'index'])->name('admin.integration');
         Route::post('/admin/api-keys', [IntegrationController::class, 'storeKey'])->name('admin.keys.store');
         Route::post('/admin/api-keys/{key}/revoke', [IntegrationController::class, 'revokeKey'])->name('admin.keys.revoke');
+        Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
+        Route::put('/admin/settings/cars', [SettingsController::class, 'updateCars'])->name('admin.settings.cars');
+        Route::post('/admin/settings/cars/test', [SettingsController::class, 'testCars'])->name('admin.settings.cars.test');
+        Route::post('/admin/settings/cars/sync', [SettingsController::class, 'syncCars'])->name('admin.settings.cars.sync');
     });
 });

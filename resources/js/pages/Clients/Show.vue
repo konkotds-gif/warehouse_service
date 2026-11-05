@@ -5,7 +5,8 @@ import Icon from '../../Components/Icon.vue';
 import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import TireSizeInput from '../../Components/TireSizeInput.vue';
-import BrandSelect from '../../Components/BrandSelect.vue';
+import SearchSelect from '../../Components/SearchSelect.vue';
+import CarMakeModel from '../../Components/CarMakeModel.vue';
 import PhoneInput from '../../Components/PhoneInput.vue';
 import PlateInput from '../../Components/PlateInput.vue';
 import { displayPlate } from '../../lib/masks';
@@ -118,8 +119,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
     <Modal :show="showVehicle" title="Новый автомобиль" @close="showVehicle = false">
         <div class="grid gap-3">
             <div><label class="label">Госномер</label><PlateInput v-model="vehicle.plate" v-model:mode="vehicle.plate_mode" /><div class="error" v-if="vehicle.errors.plate">{{ vehicle.errors.plate }}</div></div>
-            <div><label class="label">Марка</label><input v-model="vehicle.make" class="input" /></div>
-            <div><label class="label">Модель</label><input v-model="vehicle.model" class="input" /></div>
+            <CarMakeModel v-model:make="vehicle.make" v-model:model="vehicle.model" required />
             <button class="btn-primary" @click="addVehicle">Добавить</button>
         </div>
     </Modal>
@@ -131,7 +131,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
             <div><label class="label">Сезон</label><select v-model="gs.season" class="input"><option :value="null">—</option><option v-for="s in seasons" :key="s.value" :value="s.value">{{ s.label }}</option></select></div>
             <div><label class="label">Состояние</label><select v-model="gs.condition" class="input"><option value="used">БУ</option><option value="new">НОВЫЕ</option></select></div>
             <label class="flex gap-2 text-sm items-center"><input type="checkbox" v-model="gs.with_rims" class="accent-blue-600" /> С дисками</label>
-            <div><label class="label">Бренд</label><BrandSelect v-model="gs.brand" :options="tireBrands" /></div>
+            <div><label class="label">Бренд</label><SearchSelect placeholder="Начните вводить бренд" v-model="gs.brand" :options="tireBrands" /></div>
             <div><label class="label">Модель</label><input v-model="gs.model" class="input" /></div>
             <button class="btn-primary sm:col-span-2" @click="saveGs">Сохранить</button>
         </div>
