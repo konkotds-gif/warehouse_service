@@ -4,8 +4,11 @@
 <meta charset="utf-8">
 <title>Печать бирок</title>
 <style>
-    /* Бирка 58×40 мм для термопринтера; печать из браузера: масштаб 100%, без полей */
-    @page { size: 58mm 40mm; margin: 0; }
+    /* Бирка 58×40 мм для термопринтера; печать из браузера: масштаб 100%, без полей.
+       Поля страницы = 0 везде: браузеру некуда печатать колонтитулы (дата, URL, номера страниц). */
+    @page { size: {{ count($tags) ? '58mm 40mm' : 'A4' }}; margin: 0; }
+    /* Квитанция всегда на отдельном листе A4, отступы — внутри листа */
+    @page receipt { size: A4; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
     .tag { width: 58mm; height: 40mm; padding: 2mm; display: flex; gap: 2mm; page-break-after: always; overflow: hidden; }
@@ -18,7 +21,7 @@
     .info .plate { font-size: 10pt; font-weight: 700; }
     .info .row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .muted { color: #333; }
-    .receipt { width: 190mm; margin: 10mm auto; font-size: 11pt; page-break-before: always; }
+    .receipt { page: receipt; width: 210mm; padding: 10mm; margin: 0 auto; font-size: 11pt; page-break-before: always; }
     .receipt:first-child { page-break-before: auto; }
     .receipt h1 { font-size: 16pt; margin: 0 0 4mm; }
     .receipt table { width: 100%; border-collapse: collapse; margin: 4mm 0; }
@@ -27,7 +30,7 @@
     .receipt .sign { margin-top: 12mm; display: flex; justify-content: space-between; }
     .noprint { position: fixed; top: 8px; right: 8px; font: 14px Arial; }
     @media print { .noprint { display: none; } }
-    @media screen { body { background: #eee; } .tag { background: #fff; margin: 8px auto; border: 1px dashed #999; } .receipt { background: #fff; padding: 10mm; } }
+    @media screen { body { background: #eee; } .tag { background: #fff; margin: 8px auto; border: 1px dashed #999; } .receipt { background: #fff; margin: 10mm auto; } }
 </style>
 </head>
 <body onload="window.print()">
