@@ -4,7 +4,8 @@ import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import Icon from '../../Components/Icon.vue';
 import PageHeader from '../../Components/PageHeader.vue';
 import TireSizeInput from '../../Components/TireSizeInput.vue';
-import BrandSelect from '../../Components/BrandSelect.vue';
+import SearchSelect from '../../Components/SearchSelect.vue';
+import CarMakeModel from '../../Components/CarMakeModel.vue';
 import PhoneInput from '../../Components/PhoneInput.vue';
 import PlateInput from '../../Components/PlateInput.vue';
 import { formatPhone, phoneComplete, ruPlateComplete, displayPlate } from '../../lib/masks';
@@ -16,7 +17,6 @@ const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Arra
 const seasons = usePage().props.dict.seasons;
 const DAMAGES = usePage().props.dict.damages || [];
 const DEFAULT_DAMAGES = DAMAGES.filter((x) => x.default).map((x) => x.value);
-const MAKES = ['Kia', 'Hyundai', 'Lada', 'Toyota', 'Volkswagen', 'Skoda', 'Renault', 'Nissan', 'Chery', 'Haval', 'Geely', 'Mitsubishi', 'Mazda', 'Ford', 'BMW', 'Mercedes-Benz', 'Audi', 'Chevrolet', 'Honda', 'Lexus', 'Subaru', 'Volvo', 'UAZ', 'Exeed', 'Omoda', 'Changan', 'Tank', 'Jetour'];
 
 const steps = ['Клиент', 'Авто / гараж', 'Комплект', 'Проверка'];
 const step = ref(props.client ? (props.preselect?.vehicle_id ? 2 : 1) : 0);
@@ -212,8 +212,7 @@ const allErrors = computed(() => Object.values(form.errors));
         </div>
         <div v-else class="grid gap-4 sm:grid-cols-3">
             <div><label class="label">Госномер *</label><PlateInput v-model="newVehicle.plate" v-model:mode="newVehicle.plate_mode" /></div>
-            <div><label class="label">Марка *</label><input v-model="newVehicle.make" class="input" list="makes" /><datalist id="makes"><option v-for="m in MAKES" :key="m" :value="m" /></datalist></div>
-            <div><label class="label">Модель *</label><input v-model="newVehicle.model" class="input" /></div>
+            <CarMakeModel v-model:make="newVehicle.make" v-model:model="newVehicle.model" required />
         </div>
     </section>
 
@@ -256,7 +255,7 @@ const allErrors = computed(() => Object.values(form.errors));
                     </div>
                     <div v-if="s.condition_needs_confirm" class="mt-1 text-sm text-amber-700">В прошлый раз были НОВЫЕ и стояли на машине — подставлено БУ. Подтвердите.</div>
                 </div>
-                <div><label class="label">Бренд шин</label><BrandSelect v-model="s.brand" :options="tireBrands" /></div>
+                <div><label class="label">Бренд шин</label><SearchSelect placeholder="Начните вводить бренд" v-model="s.brand" :options="tireBrands" /></div>
                 <div><label class="label">Модель шин</label><input v-model="s.model" class="input" placeholder="Hakkapeliitta 10" /></div>
                 <div v-if="s.condition === 'used'" class="sm:col-span-2">
                     <label class="label">Повреждения</label>

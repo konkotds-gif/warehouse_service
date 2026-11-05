@@ -15,6 +15,28 @@ class Vehicle extends Model
 
     protected $fillable = ['client_id', 'plate', 'make', 'model'];
 
+    /** Марку и модель привязываем к справочнику авто (если нашлись) и приводим к написанию из справочника. */
+    protected static function booted(): void
+    {
+        static::saving(function (self $v) {
+            if (! $v->isDirty(['make', 'model']) && $v->exists) {
+                return;
+            }
+            $make = CarMake::findByName($v->make);
+            $v->car_make_id = $make?->id;
+            $v->car_model_id = null;
+            if (! $make) {
+                return;
+            }
+            $v->make = $make->name;
+            $model = $make->models()->where('is_active', true)->where('name', trim((string) $v->model))->first();
+            if ($model) {
+                $v->car_model_id = $model->id;
+                $v->model = $model->name;
+            }
+        });
+    }
+
     public function setPlateAttribute(?string $value): void
     {
         $this->attributes['plate'] = Normalizer::plate($value);

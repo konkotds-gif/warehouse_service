@@ -25,9 +25,10 @@ const nav = computed(() => [
     { href: '/inventories', label: 'Инвентаризация', icon: 'inventory', show: can('inventory') },
     { href: '/locations', label: 'Склады и ячейки', icon: 'map', show: can('place') },
     { href: '/reports', label: 'Отчёты', icon: 'chart', show: can('reports') },
-    { href: '/admin/users', label: 'Пользователи', icon: 'settings', show: can('admin') },
+    { href: '/admin/users', label: 'Пользователи', icon: 'users', show: can('admin') },
     { href: '/admin/tariffs', label: 'Тарифы', icon: 'file', show: can('admin') },
     { href: '/admin/integration', label: 'Обмен с 1С', icon: 'sync', show: can('admin') },
+    { href: '/admin/settings', label: 'Настройки', icon: 'settings', show: can('admin') },
 ].filter((i) => i.show));
 
 const tabs = computed(() => nav.value.filter((i) => ['/', '/accept', '/scan/issue', '/scan/place', '/transfers', '/tasks'].includes(i.href)).slice(0, 4));
