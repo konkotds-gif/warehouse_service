@@ -6,6 +6,9 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import TireSizeInput from '../../Components/TireSizeInput.vue';
 import BrandSelect from '../../Components/BrandSelect.vue';
+import PhoneInput from '../../Components/PhoneInput.vue';
+import PlateInput from '../../Components/PlateInput.vue';
+import { displayPlate } from '../../lib/masks';
 import { splitBrandModel, joinBrandModel } from '../../lib/tires';
 import { d, phone, can } from '../../lib/format';
 
@@ -13,7 +16,11 @@ const props = defineProps({ client: Object, garage: Array, contracts: Array, tir
 const seasons = usePage().props.dict.seasons;
 const edit = useForm({ ...props.client });
 const showEdit = ref(false);
-const vehicle = useForm({ plate: '', make: '', model: '' });
+const vehicle = useForm({ plate: '', plate_mode: 'ru', make: '', model: '' });
+function addVehicle() {
+    vehicle.transform(({ plate_mode, ...d }) => ({ ...d, plate: plate_mode === 'none' ? null : d.plate, no_plate: plate_mode === 'none' }))
+        .post(`/clients/${props.client.id}/vehicles`, { onSuccess: () => { showVehicle.value = false; vehicle.reset(); } });
+}
 const showVehicle = ref(false);
 const gs = useForm({ title: '', season: null, qty: 4, tire_size: '', with_rims: true, condition: 'used', brand: '', model: '', notes: '' });
 const gsEdit = ref(null);
@@ -55,7 +62,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
         <div v-for="v in garage" :key="v.id" class="card p-5">
             <div class="flex items-center gap-3">
                 <span class="icon-tile"><Icon name="car" /></span>
-                <div><div class="text-lg font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ v.plate || 'госномер не указан' }}</div></div>
+                <div><div class="text-lg font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ displayPlate(v.plate) }}</div></div>
             </div>
             <div class="mt-4 grid gap-2">
                 <div v-for="g in v.garage_sets" :key="g.id" class="rounded-[12px] border border-line p-3" :class="g.state === 'retired' ? 'opacity-50' : ''">
@@ -65,6 +72,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
                         <span v-else class="badge badge-ink">{{ g.state_label }}</span>
                     </div>
                     <div class="text-sm text-ink-500">{{ g.qty }} шт · {{ g.tire_size }} · {{ g.with_rims ? 'с дисками' : 'без дисков' }} · {{ g.condition_label }}<template v-if="g.season_label"> · {{ g.season_label }}</template></div>
+                    <div v-if="g.damages_labels?.length" class="text-xs text-ink-500">Повреждения: {{ g.damages_labels.join(', ') }}</div>
                     <div class="mt-2 flex flex-wrap gap-2" v-if="g.state !== 'retired'">
                         <Link v-if="!g.active_set && can('accept')" :href="`/accept?garage_set=${g.id}`" class="btn-link !min-h-8 !text-xs">Принять →</Link>
                         <button class="btn-ghost !min-h-8 !text-xs" @click="openGs(g)">Изменить</button>
@@ -86,7 +94,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
                 <tr v-for="c in contracts" :key="c.id">
                     <td><Link :href="`/contracts/${c.id}`" class="font-bold text-blue-600 tabular">{{ c.number }}</Link></td>
                     <td><span class="badge" :class="badge[c.status]">{{ c.status_label }}</span></td>
-                    <td class="tabular">{{ c.vehicle?.plate }}</td>
+                    <td class="tabular">{{ c.vehicle ? displayPlate(c.vehicle.plate) : '' }}</td>
                     <td><div v-for="s in c.sets" :key="s.id" class="flex gap-2 items-center"><StatusBadge :status="s.status" /><span class="tabular">{{ s.address }}</span></div></td>
                     <td class="tabular">{{ d(c.accepted_at) }} · {{ c.store?.code }}</td>
                     <td class="tabular">{{ d(c.storage_until) }}</td>
@@ -99,7 +107,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
     <Modal :show="showEdit" title="Данные клиента" @close="showEdit = false">
         <div class="grid gap-3">
             <div><label class="label">ФИО</label><input v-model="edit.full_name" class="input" /></div>
-            <div><label class="label">Телефон</label><input v-model="edit.phone" class="input" /></div>
+            <div><label class="label">Телефон</label><PhoneInput v-model="edit.phone" /></div>
             <div><label class="label">E-mail</label><input v-model="edit.email" class="input" /><div class="error" v-if="edit.errors.email">{{ edit.errors.email }}</div></div>
             <div><label class="label">Примечание</label><input v-model="edit.notes" class="input" /></div>
             <label class="flex gap-2 text-sm"><input type="checkbox" v-model="edit.consent_sms" class="accent-blue-600" /> Согласие на SMS</label>
@@ -109,10 +117,10 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
     </Modal>
     <Modal :show="showVehicle" title="Новый автомобиль" @close="showVehicle = false">
         <div class="grid gap-3">
-            <div><label class="label">Госномер</label><input v-model="vehicle.plate" class="input uppercase tabular" /><div class="error" v-if="vehicle.errors.plate">{{ vehicle.errors.plate }}</div></div>
+            <div><label class="label">Госномер</label><PlateInput v-model="vehicle.plate" v-model:mode="vehicle.plate_mode" /><div class="error" v-if="vehicle.errors.plate">{{ vehicle.errors.plate }}</div></div>
             <div><label class="label">Марка</label><input v-model="vehicle.make" class="input" /></div>
             <div><label class="label">Модель</label><input v-model="vehicle.model" class="input" /></div>
-            <button class="btn-primary" @click="vehicle.post(`/clients/${client.id}/vehicles`, { onSuccess: () => { showVehicle = false; vehicle.reset(); } })">Добавить</button>
+            <button class="btn-primary" @click="addVehicle">Добавить</button>
         </div>
     </Modal>
     <Modal :show="!!gsEdit" title="Комплект в гараже" @close="gsEdit = null">

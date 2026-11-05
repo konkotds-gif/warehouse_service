@@ -19,13 +19,14 @@ class WheelSet extends Model
     use HasUuids;
 
     protected $fillable = ['garage_set_id', 'contract_id', 'qr_code', 'qty', 'tire_size', 'with_rims', 'condition',
-        'season', 'brand_model', 'status', 'current_cell_id', 'current_location_id', 'transfer_id',
+        'season', 'brand_model', 'damages', 'status', 'current_cell_id', 'current_location_id', 'transfer_id',
         'issue_store_id', 'issue_due_date', 'notes'];
 
     protected function casts(): array
     {
         return [
             'with_rims' => 'boolean',
+            'damages' => 'array',
             'qty' => 'integer',
             'condition' => Condition::class,
             'season' => Season::class,

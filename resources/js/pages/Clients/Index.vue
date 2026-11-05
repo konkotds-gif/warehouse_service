@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import PageHeader from '../../Components/PageHeader.vue';
 import Pagination from '../../Components/Pagination.vue';
+import PhoneInput from '../../Components/PhoneInput.vue';
 import Modal from '../../Components/Modal.vue';
 import { phone } from '../../lib/format';
 
@@ -38,7 +39,7 @@ const form = useForm({ full_name: '', phone: '', email: '', consent_sms: true, c
     <Modal :show="show" title="Новый клиент" @close="show = false">
         <div class="grid gap-3">
             <div><label class="label">ФИО *</label><input v-model="form.full_name" class="input" /><div class="error" v-if="form.errors.full_name">{{ form.errors.full_name }}</div></div>
-            <div><label class="label">Телефон</label><input v-model="form.phone" class="input" inputmode="tel" /></div>
+            <div><label class="label">Телефон</label><PhoneInput v-model="form.phone" /></div>
             <div><label class="label">E-mail</label><input v-model="form.email" class="input" /></div>
             <label class="flex gap-2 text-sm"><input type="checkbox" v-model="form.consent_sms" class="accent-blue-600" /> Согласие на SMS</label>
             <label class="flex gap-2 text-sm"><input type="checkbox" v-model="form.consent_pd" class="accent-blue-600" /> Согласие на обработку ПДн</label>

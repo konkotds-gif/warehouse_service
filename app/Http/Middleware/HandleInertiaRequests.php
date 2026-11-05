@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Storage\Damage;
 use App\Domain\Storage\Season;
 use App\Domain\Storage\SetStatus;
 use Illuminate\Http\Request;
@@ -65,6 +66,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'dict' => fn () => [
                 'statuses' => SetStatus::dictionary(),
+                'damages' => Damage::dictionary(),
                 'seasons' => collect(Season::cases())->map(fn ($s) => ['value' => $s->value, 'label' => $s->label()])->all(),
             ],
         ];

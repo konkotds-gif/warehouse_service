@@ -18,12 +18,13 @@ class GarageSet extends Model
     use HasUuids;
 
     protected $fillable = ['vehicle_id', 'title', 'season', 'qty', 'tire_size', 'with_rims', 'condition',
-        'brand_model', 'notes', 'state', 'last_contract_id', 'last_issued_at'];
+        'brand_model', 'damages', 'notes', 'state', 'last_contract_id', 'last_issued_at'];
 
     protected function casts(): array
     {
         return [
             'with_rims' => 'boolean',
+            'damages' => 'array',
             'qty' => 'integer',
             'condition' => Condition::class,
             'season' => Season::class,
@@ -68,6 +69,7 @@ class GarageSet extends Model
             'condition_needs_confirm' => $needsConfirm,
             'season' => $this->season?->value,
             'brand_model' => $this->brand_model,
+            'damages' => $condition === Condition::Used ? ($this->damages ?? []) : [],
             'notes' => $this->notes,
         ];
     }
