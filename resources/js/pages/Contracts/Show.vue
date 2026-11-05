@@ -9,6 +9,9 @@ import { d, dt, money, phone, today, can } from '../../lib/format';
 const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean, confirmation: Object, closing: Object, autoClose: Boolean });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
+// Иконка места: в пути — машина, в магазине — дом, выдан — галочка, на складе — коробка
+const placeIcon = (s) => ({ transit: 'truck', issued: 'check', disposed: 'x', lost: 'alert' })[s.whereabouts?.kind]
+    || (['accepted', 'ready'].includes(s.status) ? 'home' : 'box');
 
 // Печать: форма POST в новой вкладке
 const printForm = ref(null);
@@ -206,7 +209,7 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                     <StatusBadge :status="s.status" />
                     <div class="ml-auto flex flex-col items-end gap-1 text-right">
                         <span class="chip bg-blue-50 text-blue-600 text-sm tabular" :title="s.whereabouts?.detail || ''"><Icon name="map" :size="14" /> {{ s.address }}</span>
-                        <span v-if="s.whereabouts?.place" class="text-xs text-ink-500" :title="s.whereabouts.detail || ''">{{ s.whereabouts.place }}</span>
+                        <span v-if="s.whereabouts?.place" class="chip bg-blue-50 text-blue-600 text-sm" :title="s.whereabouts.detail || ''"><Icon :name="placeIcon(s)" :size="14" /> {{ s.whereabouts.place }}</span>
                     </div>
                 </div>
                 <div class="mt-2 text-ink-900">{{ s.qty }} шт · <b>{{ s.tire_size }}</b> · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition_label }}<template v-if="s.season_label"> · {{ s.season_label }}</template></div>
