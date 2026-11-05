@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Domain\Storage\SetStatus;
 use App\Domain\Support\Normalizer;
+use App\Models\Concerns\Audited;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,9 +13,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Vehicle extends Model
 {
-    use HasUuids, SoftDeletes;
+    use Audited, HasUuids, SoftDeletes;
 
-    protected $fillable = ['client_id', 'plate', 'make', 'model'];
+    protected $fillable = ['client_id', 'plate', 'vin', 'make', 'model', 'year', 'color', 'notes'];
+
+    protected function casts(): array
+    {
+        return ['year' => 'integer'];
+    }
 
     /** Марку и модель привязываем к справочнику авто (если нашлись) и приводим к написанию из справочника. */
     protected static function booted(): void
@@ -42,9 +49,34 @@ class Vehicle extends Model
         $this->attributes['plate'] = Normalizer::plate($value);
     }
 
+    /** VIN / номер кузова: заглавные латинские буквы и цифры, без пробелов. */
+    public function setVinAttribute(?string $value): void
+    {
+        $v = mb_strtoupper(preg_replace('/[\s_]+/u', '', (string) $value) ?? '');
+        $this->attributes['vin'] = $v === '' ? null : $v;
+    }
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(StorageContract::class)->latest('accepted_at');
+    }
+
+    public function ownerChanges(): HasMany
+    {
+        return $this->hasMany(VehicleOwnerChange::class)->latest('at')->latest('id');
+    }
+
+    /** Есть ли комплекты этого авто на хранении (не выданы). */
+    public function hasSetsInStorage(): bool
+    {
+        return WheelSet::whereIn('status', SetStatus::activeValues())
+            ->whereIn('contract_id', StorageContract::where('vehicle_id', $this->id)->select('id'))
+            ->exists();
     }
 
     public function garageSets(): HasMany

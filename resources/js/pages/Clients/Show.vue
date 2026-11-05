@@ -63,7 +63,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
         <div v-for="v in garage" :key="v.id" class="card p-5">
             <div class="flex items-center gap-3">
                 <span class="icon-tile"><Icon name="car" /></span>
-                <div><div class="text-lg font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ displayPlate(v.plate) }}</div></div>
+                <div><Link :href="`/vehicles/${v.id}`" class="text-lg font-bold text-blue-600">{{ v.make }} {{ v.model }}</Link><div class="tabular text-ink-500">{{ v.plate ? displayPlate(v.plate) : 'без номеров' }}<template v-if="v.year"> · {{ v.year }}</template></div></div>
             </div>
             <div class="mt-4 grid gap-2">
                 <div v-for="g in v.garage_sets" :key="g.id" class="rounded-[12px] border border-line p-3" :class="g.state === 'retired' ? 'opacity-50' : ''">
@@ -95,7 +95,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
                 <tr v-for="c in contracts" :key="c.id">
                     <td><Link :href="`/contracts/${c.id}`" class="font-bold text-blue-600 tabular">{{ c.number }}</Link></td>
                     <td><span class="badge" :class="badge[c.status]">{{ c.status_label }}</span></td>
-                    <td class="tabular">{{ c.vehicle ? displayPlate(c.vehicle.plate) : '' }}</td>
+                    <td class="tabular"><Link v-if="c.vehicle" :href="`/vehicles/${c.vehicle.id}`" class="text-blue-600">{{ c.vehicle.plate ? displayPlate(c.vehicle.plate) : c.vehicle.title }}</Link></td>
                     <td><div v-for="s in c.sets" :key="s.id" class="flex gap-2 items-center"><StatusBadge :status="s.status" /><span class="tabular">{{ s.address }}</span></div></td>
                     <td class="tabular">{{ d(c.accepted_at) }} · {{ c.store?.code }}</td>
                     <td class="tabular">{{ d(c.storage_until) }}</td>

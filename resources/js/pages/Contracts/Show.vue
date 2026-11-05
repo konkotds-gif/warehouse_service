@@ -176,7 +176,8 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <Link v-if="contract.client" :href="`/clients/${contract.client.id}`" class="text-lg font-bold text-blue-600">{{ contract.client.full_name }}</Link>
                 <div class="tabular">{{ phone(contract.client?.phone) }}</div>
                 <div class="mt-3 text-sm text-ink-500">Автомобиль</div>
-                <div class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
+                <Link v-if="contract.vehicle && can('clients')" :href="`/vehicles/${contract.vehicle.id}`" class="font-semibold text-blue-600">{{ contract.vehicle.title }}</Link>
+                <div v-else class="font-semibold">{{ contract.vehicle?.title || 'не указан' }}</div>
             </div>
             <div class="card p-5" :class="debt.blocked ? 'border-red-600' : ''">
                 <div class="flex justify-between"><span class="text-ink-500">Сумма за хранение</span><b>{{ money(contract.amount) }}</b></div>
