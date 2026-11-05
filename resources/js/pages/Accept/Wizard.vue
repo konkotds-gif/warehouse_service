@@ -3,10 +3,13 @@ import { computed, reactive, ref, watch } from 'vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import Icon from '../../Components/Icon.vue';
 import PageHeader from '../../Components/PageHeader.vue';
+import TireSizeInput from '../../Components/TireSizeInput.vue';
+import BrandSelect from '../../Components/BrandSelect.vue';
+import { splitBrandModel, joinBrandModel } from '../../lib/tires';
 import { getJson } from '../../lib/http';
 import { phone as fmtPhone, money } from '../../lib/format';
 
-const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Array, client: Object, garage: Array, preselect: Object });
+const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Array, client: Object, garage: Array, preselect: Object, tireBrands: { type: Array, default: () => [] } });
 const seasons = usePage().props.dict.seasons;
 const MAKES = ['Kia', 'Hyundai', 'Lada', 'Toyota', 'Volkswagen', 'Skoda', 'Renault', 'Nissan', 'Chery', 'Haval', 'Geely', 'Mitsubishi', 'Mazda', 'Ford', 'BMW', 'Mercedes-Benz', 'Audi', 'Chevrolet', 'Honda', 'Lexus', 'Subaru', 'Volvo', 'UAZ', 'Exeed', 'Omoda', 'Changan', 'Tank', 'Jetour'];
 
@@ -39,7 +42,12 @@ const isNewVehicle = ref(!props.client || !props.garage.length);
 const selectedVehicle = computed(() => props.garage.find((v) => v.id === vehicleId.value));
 
 // --- Шаг 3: комплекты
-const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand_model: '', notes: '', condition_needs_confirm: false });
+const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand: '', model: '', notes: '', condition_needs_confirm: false });
+// Данные из гаража: brand_model раскладываем на бренд (селект) и модель (текст)
+const fromGarage = (prefill) => {
+    const { brand_model, ...rest } = prefill || {};
+    return { ...blank(), ...rest, ...splitBrandModel(brand_model, props.tireBrands) };
+};
 const form = useForm({
     store_id: props.defaultStoreId || props.stores[0]?.id || null,
     tariff_id: (props.tariffs.find((t) => t.period === 'season') || props.tariffs[0])?.id || null,
@@ -51,12 +59,12 @@ function useGarageSet(g) {
     if (g.active_set) return;
     vehicleId.value = g.vehicle_id;
     isNewVehicle.value = false;
-    form.sets = [{ ...blank(), ...g.prefill }];
+    form.sets = [fromGarage(g.prefill)];
     step.value = 2;
 }
 if (props.preselect?.garage_set_id) {
     const g = props.garage.flatMap((v) => v.garage_sets).find((x) => x.id === props.preselect.garage_set_id);
-    if (g && !g.active_set) form.sets = [{ ...blank(), ...g.prefill }];
+    if (g && !g.active_set) form.sets = [fromGarage(g.prefill)];
 }
 watch(() => form.tariff_id, (id) => {
     const t = props.tariffs.find((x) => x.id === id);
@@ -66,7 +74,7 @@ watch(() => form.tariff_id, (id) => {
 const sizeRe = /^(\d{3})\s*\/\s*(\d{2})\s*(Z?R)\s*(\d{2}(\.5)?C?)(\s*\d{2,3}(\/\d{2,3})?\s*[A-Za-z])?$|^\d{2}\s*[xXхХ]\s*\d{1,2}(\.\d{1,2})?\s*R\s*\d{2}(\s*\d{2,3}\s*[A-Za-z])?$/i;
 function setErrors(s) {
     const e = [];
-    if (!sizeRe.test(s.tire_size.trim())) e.push('размер шин (например 205/55 R16 94H)');
+    if (!sizeRe.test(s.tire_size.trim())) e.push('размер шин (ширина, профиль, диаметр)');
     if (s.with_rims === null) e.push('с дисками / без');
     if (!s.condition) e.push('БУ / НОВЫЕ');
     return e;
@@ -84,6 +92,7 @@ const tariff = computed(() => props.tariffs.find((t) => t.id === form.tariff_id)
 function submit() {
     form.transform((data) => ({
         ...data,
+        sets: data.sets.map(({ brand, model, ...s }) => ({ ...s, brand_model: joinBrandModel(brand, model) || null })),
         client_id: props.client?.id || null,
         client: props.client ? null : { ...newClient },
         vehicle_id: isNewVehicle.value ? null : vehicleId.value,
@@ -211,10 +220,8 @@ const allErrors = computed(() => Object.values(form.errors));
             </div>
             <div class="mt-4 grid gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="label">Полный размер шин *</label>
-                    <input v-model="s.tire_size" class="input tabular uppercase" placeholder="205/55 R16 94H" list="sizes" />
-                    <datalist id="sizes"><option v-for="x in ['175/70 R13','185/65 R15','195/65 R15 91H','205/55 R16 91H','205/55 R16 94H','215/60 R16','215/65 R16','225/45 R17','225/60 R17','235/55 R18','235/65 R17','265/65 R17']" :key="x" :value="x" /></datalist>
-                    <div v-if="s.tire_size && !sizeRe.test(s.tire_size.trim())" class="error">Формат: 205/55 R16 94H</div>
+                    <label class="label">Размер шин *</label>
+                    <TireSizeInput v-model="s.tire_size" />
                 </div>
                 <div><label class="label">Сезон</label>
                     <select v-model="s.season" class="input"><option :value="null">—</option><option v-for="x in seasons" :key="x.value" :value="x.value">{{ x.label }}</option></select></div>
@@ -230,8 +237,9 @@ const allErrors = computed(() => Object.values(form.errors));
                     </div>
                     <div v-if="s.condition_needs_confirm" class="mt-1 text-sm text-amber-700">В прошлый раз были НОВЫЕ и стояли на машине — подставлено БУ. Подтвердите.</div>
                 </div>
-                <div><label class="label">Бренд / модель шин</label><input v-model="s.brand_model" class="input" placeholder="Nokian Hakkapeliitta 10" /></div>
-                <div><label class="label">Повреждения, комментарий</label><input v-model="s.notes" class="input" /></div>
+                <div><label class="label">Бренд шин</label><BrandSelect v-model="s.brand" :options="tireBrands" /></div>
+                <div><label class="label">Модель шин</label><input v-model="s.model" class="input" placeholder="Hakkapeliitta 10" /></div>
+                <div class="sm:col-span-2"><label class="label">Повреждения, комментарий</label><input v-model="s.notes" class="input" /></div>
             </div>
             <div v-if="setErrors(s).length" class="mt-3 text-sm text-ink-500">Осталось указать: {{ setErrors(s).join(', ') }}</div>
         </div>
@@ -249,6 +257,7 @@ const allErrors = computed(() => Object.values(form.errors));
         <div class="mt-4 rounded-[12px] bg-bg p-4" v-for="(s, i) in form.sets" :key="i">
             <b>{{ s.qty }} шт</b> · {{ s.tire_size.toUpperCase() }} · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition === 'new' ? 'НОВЫЕ' : 'БУ' }}
             <span v-if="s.season" class="text-ink-500"> · {{ seasons.find((x) => x.value === s.season)?.label }}</span>
+            <span v-if="s.brand || s.model" class="text-ink-500"> · {{ joinBrandModel(s.brand, s.model) }}</span>
         </div>
         <div class="mt-4"><label class="label">Комментарий к договору</label><input v-model="form.notes" class="input" /></div>
         <p class="mt-4 text-sm text-ink-500">После оформления откроется печать: {{ totalWheels }} бирок с одинаковым QR (номер договора) и квитанция клиенту.</p>

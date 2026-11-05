@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\GarageSet;
 use App\Models\Location;
 use App\Models\Tariff;
+use App\Models\TireBrand;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -38,6 +39,7 @@ class AcceptController extends Controller
             'garage' => $client ? array_map(fn ($v) => $v + ['garage_sets' => array_values(array_filter($v['garage_sets'],
                 fn ($g) => $g['state'] !== GarageSetState::Retired->value))], Present::garage($client)) : [],
             'preselect' => $preselect,
+            'tireBrands' => TireBrand::activeNames(),
         ]);
     }
 
@@ -63,7 +65,7 @@ class AcceptController extends Controller
             'sets.*.condition' => ['required', 'in:used,new'],
         ], [
             'client.full_name.required_without' => 'Укажите ФИО клиента',
-            'sets.*.tire_size.required' => 'Укажите полный размер шин',
+            'sets.*.tire_size.required' => 'Укажите размер шин: ширина, профиль, диаметр',
             'sets.*.with_rims.required' => 'Укажите: с дисками или без',
             'sets.*.condition.required' => 'Укажите: БУ или НОВЫЕ',
         ]);
