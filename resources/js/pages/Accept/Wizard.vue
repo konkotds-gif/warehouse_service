@@ -5,12 +5,17 @@ import Icon from '../../Components/Icon.vue';
 import PageHeader from '../../Components/PageHeader.vue';
 import TireSizeInput from '../../Components/TireSizeInput.vue';
 import BrandSelect from '../../Components/BrandSelect.vue';
+import PhoneInput from '../../Components/PhoneInput.vue';
+import PlateInput from '../../Components/PlateInput.vue';
+import { formatPhone, phoneComplete, ruPlateComplete, displayPlate } from '../../lib/masks';
 import { splitBrandModel, joinBrandModel } from '../../lib/tires';
 import { getJson } from '../../lib/http';
 import { phone as fmtPhone, money } from '../../lib/format';
 
 const props = defineProps({ stores: Array, defaultStoreId: Number, tariffs: Array, client: Object, garage: Array, preselect: Object, tireBrands: { type: Array, default: () => [] } });
 const seasons = usePage().props.dict.seasons;
+const DAMAGES = usePage().props.dict.damages || [];
+const DEFAULT_DAMAGES = DAMAGES.filter((x) => x.default).map((x) => x.value);
 const MAKES = ['Kia', 'Hyundai', 'Lada', 'Toyota', 'Volkswagen', 'Skoda', 'Renault', 'Nissan', 'Chery', 'Haval', 'Geely', 'Mitsubishi', 'Mazda', 'Ford', 'BMW', 'Mercedes-Benz', 'Audi', 'Chevrolet', 'Honda', 'Lexus', 'Subaru', 'Volvo', 'UAZ', 'Exeed', 'Omoda', 'Changan', 'Tank', 'Jetour'];
 
 const steps = ['Клиент', 'Авто / гараж', 'Комплект', 'Проверка'];
@@ -37,16 +42,19 @@ function pickClient(c) {
 
 // --- Шаг 2: авто и гараж
 const vehicleId = ref(props.preselect?.vehicle_id || (props.garage.length === 1 ? props.garage[0].id : null));
-const newVehicle = reactive({ plate: '', make: '', model: '' });
+const newVehicle = reactive({ plate: '', plate_mode: 'ru', make: '', model: '' });
+const plateOk = computed(() => newVehicle.plate_mode === 'none' || (newVehicle.plate_mode === 'ru' ? ruPlateComplete(newVehicle.plate) : newVehicle.plate.trim().length >= 2));
 const isNewVehicle = ref(!props.client || !props.garage.length);
 const selectedVehicle = computed(() => props.garage.find((v) => v.id === vehicleId.value));
 
 // --- Шаг 3: комплекты
-const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand: '', model: '', notes: '', condition_needs_confirm: false });
+const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand: '', model: '', damages: [], notes: '', condition_needs_confirm: false });
 // Данные из гаража: brand_model раскладываем на бренд (селект) и модель (текст)
 const fromGarage = (prefill) => {
     const { brand_model, ...rest } = prefill || {};
-    return { ...blank(), ...rest, ...splitBrandModel(brand_model, props.tireBrands) };
+    const s = { ...blank(), ...rest, ...splitBrandModel(brand_model, props.tireBrands) };
+    if (s.condition === 'used' && !s.damages?.length) s.damages = [...DEFAULT_DAMAGES];
+    return s;
 };
 const form = useForm({
     store_id: props.defaultStoreId || props.stores[0]?.id || null,
@@ -80,9 +88,19 @@ function setErrors(s) {
     return e;
 }
 
+// БУ: царапины и потёртости отмечаются сразу; НОВЫЕ: повреждения не нужны
+function setCondition(s, c) {
+    s.condition = c;
+    s.condition_needs_confirm = false;
+    if (c === 'used' && !s.damages.length) s.damages = [...DEFAULT_DAMAGES];
+    if (c === 'new') s.damages = [];
+}
+const damagesFor = (s) => DAMAGES.filter((x) => s.with_rims !== false || !x.rim);
+const damageLabels = (s) => damagesFor(s).filter((x) => s.damages.includes(x.value)).map((x) => x.label);
+
 const canNext = computed(() => {
-    if (step.value === 0) return props.client || (isNewClient.value && newClient.full_name.trim() && newClient.phone.replace(/\D/g, '').length >= 10);
-    if (step.value === 1) return isNewVehicle.value ? newVehicle.plate.trim() && newVehicle.make.trim() && newVehicle.model.trim() : !!vehicleId.value;
+    if (step.value === 0) return props.client || (isNewClient.value && newClient.full_name.trim() && phoneComplete(newClient.phone));
+    if (step.value === 1) return isNewVehicle.value ? plateOk.value && newVehicle.make.trim() && newVehicle.model.trim() : !!vehicleId.value;
     if (step.value === 2) return form.store_id && form.sets.every((s) => setErrors(s).length === 0);
     return true;
 });
@@ -92,13 +110,14 @@ const tariff = computed(() => props.tariffs.find((t) => t.id === form.tariff_id)
 function submit() {
     form.transform((data) => ({
         ...data,
-        sets: data.sets.map(({ brand, model, ...s }) => ({ ...s, brand_model: joinBrandModel(brand, model) || null })),
+        sets: data.sets.map(({ brand, model, ...s }) => ({ ...s, brand_model: joinBrandModel(brand, model) || null, damages: s.condition === 'used' ? damageLabelsValues(s) : [] })),
         client_id: props.client?.id || null,
         client: props.client ? null : { ...newClient },
         vehicle_id: isNewVehicle.value ? null : vehicleId.value,
-        vehicle: isNewVehicle.value ? { ...newVehicle } : null,
+        vehicle: isNewVehicle.value ? { plate: newVehicle.plate_mode === 'none' ? null : newVehicle.plate, no_plate: newVehicle.plate_mode === 'none', make: newVehicle.make, model: newVehicle.model } : null,
     })).post('/accept');
 }
+const damageLabelsValues = (s) => damagesFor(s).filter((x) => s.damages.includes(x.value)).map((x) => x.value);
 const allErrors = computed(() => Object.values(form.errors));
 </script>
 
@@ -144,17 +163,17 @@ const allErrors = computed(() => Object.values(form.errors));
                                 <div class="text-sm text-ink-500 tabular">{{ fmtPhone(c.phone) }}</div>
                             </div>
                             <div class="flex flex-wrap gap-1 justify-end">
-                                <span v-for="v in c.vehicles" :key="v.id" class="chip bg-blue-50 text-blue-600">{{ v.plate }}</span>
+                                <span v-for="v in c.vehicles" :key="v.id" class="chip bg-blue-50 text-blue-600">{{ displayPlate(v.plate) }}</span>
                             </div>
                             <Icon name="arrow" :size="18" />
                         </button>
                     </li>
                 </ul>
-                <p v-if="q.length >= 2 && !found.length && !searching" class="mt-3 text-sm text-ink-500">Не нашли — <button class="text-blue-600 font-semibold" @click="isNewClient = true; newClient.full_name = /\d/.test(q) ? '' : q; newClient.phone = /\d/.test(q) ? q : ''">создать нового клиента</button></p>
+                <p v-if="q.length >= 2 && !found.length && !searching" class="mt-3 text-sm text-ink-500">Не нашли — <button class="text-blue-600 font-semibold" @click="isNewClient = true; newClient.full_name = /\d/.test(q) ? '' : q; newClient.phone = /\d/.test(q) ? formatPhone(q) : ''">создать нового клиента</button></p>
             </div>
             <div v-else class="grid gap-4 sm:grid-cols-2">
                 <div class="sm:col-span-2"><label class="label">ФИО клиента *</label><input v-model="newClient.full_name" class="input" /></div>
-                <div><label class="label">Телефон *</label><input v-model="newClient.phone" class="input tabular" inputmode="tel" placeholder="+7 (___) ___-__-__" /></div>
+                <div><label class="label">Телефон *</label><PhoneInput v-model="newClient.phone" /></div>
                 <div class="flex flex-col justify-end gap-2 text-sm">
                     <label class="flex items-center gap-2"><input type="checkbox" v-model="newClient.consent_sms" class="h-4 w-4 accent-blue-600" /> Согласие на SMS</label>
                     <label class="flex items-center gap-2"><input type="checkbox" v-model="newClient.consent_pd" class="h-4 w-4 accent-blue-600" /> Согласие на обработку ПДн (152-ФЗ)</label>
@@ -174,7 +193,7 @@ const allErrors = computed(() => Object.values(form.errors));
                 :class="vehicleId === v.id ? 'border-blue-600 ring-4 ring-blue-600/10' : 'border-line hover:border-blue-600'" @click="vehicleId = v.id">
                 <div class="flex items-center gap-3">
                     <span class="icon-tile !h-10 !w-10"><Icon name="car" /></span>
-                    <div><div class="font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ v.plate }}</div></div>
+                    <div><div class="font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ displayPlate(v.plate) }}</div></div>
                 </div>
                 <div class="mt-3 grid gap-2">
                     <button v-for="g in v.garage_sets" :key="g.id" type="button" :disabled="!!g.active_set"
@@ -192,7 +211,7 @@ const allErrors = computed(() => Object.values(form.errors));
             </div>
         </div>
         <div v-else class="grid gap-4 sm:grid-cols-3">
-            <div><label class="label">Госномер *</label><input v-model="newVehicle.plate" class="input tabular uppercase" placeholder="А123ВС86" /></div>
+            <div><label class="label">Госномер *</label><PlateInput v-model="newVehicle.plate" v-model:mode="newVehicle.plate_mode" /></div>
             <div><label class="label">Марка *</label><input v-model="newVehicle.make" class="input" list="makes" /><datalist id="makes"><option v-for="m in MAKES" :key="m" :value="m" /></datalist></div>
             <div><label class="label">Модель *</label><input v-model="newVehicle.model" class="input" /></div>
         </div>
@@ -232,14 +251,23 @@ const allErrors = computed(() => Object.values(form.errors));
                 <div>
                     <label class="label">Состояние *</label>
                     <div class="seg w-full grid grid-cols-2" :class="s.condition_needs_confirm ? 'ring-4 ring-amber-500/40 border-amber-500' : ''">
-                        <button type="button" :class="{ on: s.condition === 'used' }" @click="s.condition = 'used'; s.condition_needs_confirm = false">БУ</button>
-                        <button type="button" :class="{ on: s.condition === 'new' }" @click="s.condition = 'new'; s.condition_needs_confirm = false">НОВЫЕ</button>
+                        <button type="button" :class="{ on: s.condition === 'used' }" @click="setCondition(s, 'used')">БУ</button>
+                        <button type="button" :class="{ on: s.condition === 'new' }" @click="setCondition(s, 'new')">НОВЫЕ</button>
                     </div>
                     <div v-if="s.condition_needs_confirm" class="mt-1 text-sm text-amber-700">В прошлый раз были НОВЫЕ и стояли на машине — подставлено БУ. Подтвердите.</div>
                 </div>
                 <div><label class="label">Бренд шин</label><BrandSelect v-model="s.brand" :options="tireBrands" /></div>
                 <div><label class="label">Модель шин</label><input v-model="s.model" class="input" placeholder="Hakkapeliitta 10" /></div>
-                <div class="sm:col-span-2"><label class="label">Повреждения, комментарий</label><input v-model="s.notes" class="input" /></div>
+                <div v-if="s.condition === 'used'" class="sm:col-span-2">
+                    <label class="label">Повреждения</label>
+                    <div class="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                        <label v-for="x in damagesFor(s)" :key="x.value" class="flex items-center gap-2 rounded-[12px] border px-3 py-2 text-sm cursor-pointer"
+                            :class="s.damages.includes(x.value) ? 'border-blue-600 bg-blue-50' : 'border-line hover:border-blue-600'">
+                            <input type="checkbox" v-model="s.damages" :value="x.value" class="h-4 w-4 accent-blue-600" /> {{ x.label }}
+                        </label>
+                    </div>
+                </div>
+                <div class="sm:col-span-2"><label class="label">{{ s.condition === 'used' ? 'Комментарий к повреждениям' : 'Комментарий' }}</label><input v-model="s.notes" class="input" placeholder="Например: порез на левом заднем" /></div>
             </div>
             <div v-if="setErrors(s).length" class="mt-3 text-sm text-ink-500">Осталось указать: {{ setErrors(s).join(', ') }}</div>
         </div>
@@ -250,7 +278,7 @@ const allErrors = computed(() => Object.values(form.errors));
     <section v-if="step === 3" class="card p-5 sm:p-6">
         <dl class="grid gap-4 sm:grid-cols-2">
             <div><dt class="text-sm text-ink-500">Клиент</dt><dd class="font-semibold">{{ client?.full_name || newClient.full_name }} · {{ fmtPhone(client?.phone) !== '—' ? fmtPhone(client?.phone) : newClient.phone }}</dd></div>
-            <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${selectedVehicle?.plate}` }}</dd></div>
+            <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate_mode === 'none' ? 'без номера' : newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${displayPlate(selectedVehicle?.plate)}` }}</dd></div>
             <div><dt class="text-sm text-ink-500">Магазин приёма</dt><dd class="font-semibold">{{ stores.find((s) => s.id === form.store_id)?.label }}</dd></div>
             <div><dt class="text-sm text-ink-500">Тариф и срок</dt><dd class="font-semibold">{{ tariff ? `${tariff.name}, ${money(tariff.period === 'month' ? tariff.price * form.months : tariff.price)}` : 'без тарифа' }} · {{ form.months }} мес.</dd></div>
         </dl>
@@ -258,6 +286,7 @@ const allErrors = computed(() => Object.values(form.errors));
             <b>{{ s.qty }} шт</b> · {{ s.tire_size.toUpperCase() }} · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition === 'new' ? 'НОВЫЕ' : 'БУ' }}
             <span v-if="s.season" class="text-ink-500"> · {{ seasons.find((x) => x.value === s.season)?.label }}</span>
             <span v-if="s.brand || s.model" class="text-ink-500"> · {{ joinBrandModel(s.brand, s.model) }}</span>
+            <div v-if="s.condition === 'used' && damageLabels(s).length" class="text-sm text-ink-500 mt-1">Повреждения: {{ damageLabels(s).join(', ') }}</div>
         </div>
         <div class="mt-4"><label class="label">Комментарий к договору</label><input v-model="form.notes" class="input" /></div>
         <p class="mt-4 text-sm text-ink-500">После оформления откроется печать: {{ totalWheels }} бирок с одинаковым QR (номер договора) и квитанция клиенту.</p>

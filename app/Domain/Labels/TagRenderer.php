@@ -32,7 +32,7 @@ final class TagRenderer
         return [
             'qr_code' => $set->qr_code,
             'contract_number' => $contract->number,
-            'plate' => $contract->vehicle?->plate,
+            'plate' => $contract->vehicle?->plate ?? 'без номера',
             'vehicle' => trim(($contract->vehicle?->make ?? '').' '.($contract->vehicle?->model ?? '')),
             'tire_size' => $set->tire_size,
             'with_rims' => $set->with_rims ? 'С ДИСКАМИ' : 'БЕЗ ДИСКОВ',

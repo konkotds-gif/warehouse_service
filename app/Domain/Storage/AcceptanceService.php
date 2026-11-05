@@ -30,10 +30,10 @@ final class AcceptanceService
     /**
      * @param  array{
      *   client_id?: string|null, client?: array{full_name: string, phone?: string|null, email?: string|null, consent_sms?: bool, consent_pd?: bool}|null,
-     *   vehicle_id?: string|null, vehicle?: array{plate: string, make: string, model: string}|null,
+     *   vehicle_id?: string|null, vehicle?: array{plate?: string|null, no_plate?: bool, make: string, model: string}|null,
      *   store_id: int, tariff_id?: int|null, months?: int|null, notes?: string|null,
      *   sets: list<array{garage_set_id?: string|null, title?: string|null, qty: int, tire_size: string, with_rims: bool,
-     *          condition: string, season?: string|null, brand_model?: string|null, notes?: string|null}>
+     *          condition: string, season?: string|null, brand_model?: string|null, damages?: list<string>, notes?: string|null}>
      * }  $data
      */
     public function accept(array $data, ?User $user = null): StorageContract
@@ -158,6 +158,11 @@ final class AcceptanceService
             'condition' => $condition,
             'season' => $season,
             'brand_model' => $d['brand_model'] ?? null,
+            // повреждения имеют смысл только для БУ; у дисков — только если комплект с дисками
+            'damages' => $condition === Condition::Used
+                ? array_values(array_filter(Damage::normalize($d['damages'] ?? []),
+                    fn ($v) => filter_var($d['with_rims'], FILTER_VALIDATE_BOOLEAN) || ! Damage::from($v)->isRim()))
+                : [],
             'notes' => $d['notes'] ?? null,
         ];
     }
@@ -198,13 +203,14 @@ final class AcceptanceService
             return $vehicle;
         }
         $v = $data['vehicle'] ?? [];
+        $noPlate = filter_var($v['no_plate'] ?? false, FILTER_VALIDATE_BOOLEAN); // новый автомобиль, ещё без номеров
         foreach (['plate' => 'госномер', 'make' => 'марку', 'model' => 'модель'] as $field => $label) {
-            if (blank($v[$field] ?? null)) {
+            if (blank($v[$field] ?? null) && ! ($field === 'plate' && $noPlate)) {
                 throw DomainError::invalid("Укажите {$label} автомобиля", 'vehicle.'.$field);
             }
         }
-        $plate = Normalizer::plate($v['plate']);
-        $existing = $client->vehicles()->where('plate', $plate)->first();
+        $plate = $noPlate ? null : Normalizer::plate($v['plate']);
+        $existing = $plate ? $client->vehicles()->where('plate', $plate)->first() : null;
 
         return $existing ?? $client->vehicles()->create([
             'plate' => $plate, 'make' => trim($v['make']), 'model' => trim($v['model']),

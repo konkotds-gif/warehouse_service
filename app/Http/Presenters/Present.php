@@ -2,6 +2,7 @@
 
 namespace App\Http\Presenters;
 
+use App\Domain\Storage\Damage;
 use App\Models\Client;
 use App\Models\GarageSet;
 use App\Models\Location;
@@ -41,6 +42,8 @@ final class Present
             'season' => $s->season?->value,
             'season_label' => $s->season?->label(),
             'brand_model' => $s->brand_model,
+            'damages' => $s->damages ?? [],
+            'damages_labels' => Damage::labels($s->damages),
             'notes' => $s->notes,
             'status' => $s->status->value,
             'status_label' => $s->status->label(),
@@ -113,6 +116,7 @@ final class Present
             'qty' => $g->qty, 'tire_size' => $g->tire_size, 'with_rims' => $g->with_rims,
             'condition' => $g->condition->value, 'condition_label' => $g->condition->label(),
             'brand_model' => $g->brand_model, 'notes' => $g->notes,
+            'damages' => $g->damages ?? [], 'damages_labels' => Damage::labels($g->damages),
             'state' => $g->state->value, 'state_label' => $g->state->label(),
             'active_set' => $active ? ['id' => $active->id, 'qr_code' => $active->qr_code, 'contract_id' => $active->contract_id,
                 'status_label' => $active->status->label(), 'status' => $active->status->value, 'address' => $active->currentAddress()] : null,
