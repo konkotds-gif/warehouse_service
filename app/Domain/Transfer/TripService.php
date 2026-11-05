@@ -75,7 +75,7 @@ final class TripService
             if ($transfer->trip_id !== $trip->id) {
                 throw DomainError::notFound("Перемещение {$transfer->number} не входит в ведомость {$trip->number}");
             }
-            $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null]);
+            $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null, 'wheels_out' => 0]);
             $transfer->update(['trip_id' => null]);
 
             return $trip->fresh('transfers');
@@ -96,23 +96,21 @@ final class TripService
         return DB::transaction(function () use ($trip, $code, $qty) {
             $trip = $this->lockLoading($trip);
             $line = $this->findLine($trip, $code, fn (TransferLine $l) => ! $l->scanned_out, [TransferStatus::Created]);
-            if ($line->scanned_out && $qty === null) {
-                throw new DomainError("Комплект «{$code}» уже погружен ({$line->transfer->number})");
-            }
 
-            return $this->transfers->scanOutLine($line, $qty);
+            // Без количества — поштучно: один скан = одно колесо
+            return $qty === null ? $this->transfers->countOut($line) : $this->transfers->scanOutLine($line, $qty);
         });
     }
 
-    /** Отменить отметку погрузки (отсканировали не то / колесо не поместилось). */
-    public function unscan(Trip $trip, TransferLine $line): void
+    /** Отменить скан одного колеса или всего комплекта (отсканировали не то / колесо не поместилось). */
+    public function unscan(Trip $trip, TransferLine $line, bool $all = true): void
     {
-        DB::transaction(function () use ($trip, $line) {
+        DB::transaction(function () use ($trip, $line, $all) {
             $trip = $this->lockLoading($trip);
             if (! $trip->transfers()->whereKey($line->transfer_id)->exists()) {
                 throw DomainError::notFound('Строка не относится к ведомости');
             }
-            $line->update(['scanned_out' => false, 'qty_out' => null]);
+            $this->transfers->uncountOut($line, $all);
         });
     }
 
@@ -127,6 +125,9 @@ final class TripService
     {
         return DB::transaction(function () use ($trip) {
             $trip = $this->lockLoading($trip);
+            foreach ($trip->transfers as $transfer) {
+                $this->transfers->finalizePartialOut($transfer);
+            }
             $transfers = $trip->transfers()->with('lines')->where('status', TransferStatus::Created->value)->get();
             if (! $transfers->contains(fn ($t) => $t->lines->contains('scanned_out', true))) {
                 throw new DomainError('Не отсканировано ни одного комплекта');
@@ -172,11 +173,8 @@ final class TripService
             }
             $line = $this->findLine($trip, $code, fn (TransferLine $l) => ! $l->scanned_in,
                 [TransferStatus::Shipped, TransferStatus::Discrepancy]);
-            if ($line->scanned_in) {
-                throw new DomainError("Комплект «{$code}» уже принят ({$line->transfer->number})");
-            }
 
-            return $this->transfers->scanInLine($line, $qty);
+            return $qty === null ? $this->transfers->countIn($line) : $this->transfers->scanInLine($line, $qty);
         });
     }
 
@@ -201,7 +199,7 @@ final class TripService
         return DB::transaction(function () use ($trip) {
             $trip = $this->lockLoading($trip);
             foreach ($trip->transfers as $transfer) {
-                $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null]);
+                $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null, 'wheels_out' => 0]);
                 $transfer->update(['trip_id' => null]);
             }
             $trip->update(['status' => TripStatus::Cancelled]);

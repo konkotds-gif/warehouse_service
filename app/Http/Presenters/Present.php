@@ -161,7 +161,8 @@ final class Present
         if ($lines) {
             $data['lines'] = $t->lines->map(fn ($l) => [
                 'id' => $l->id, 'scanned_out' => $l->scanned_out, 'scanned_in' => $l->scanned_in,
-                'qty_out' => $l->qty_out, 'qty_in' => $l->qty_in, 'set' => self::set($l->wheelSet),
+                'qty_out' => $l->qty_out, 'qty_in' => $l->qty_in, 'wheels_out' => $l->wheels_out, 'wheels_in' => $l->wheels_in,
+                'set' => self::set($l->wheelSet),
                 'client' => $l->wheelSet->relationLoaded('contract') && $l->wheelSet->contract?->relationLoaded('client') ? $l->wheelSet->contract->client?->full_name : null,
             ])->all();
             $data['contracts_count'] = $t->lines->pluck('wheelSet.contract_id')->unique()->count();

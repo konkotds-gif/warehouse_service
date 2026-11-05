@@ -92,14 +92,30 @@ class TripController extends Controller
         $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
         $line = $service->scanOut($trip, $data['code'], $data['qty'] ?? null);
 
-        return response()->json(['message' => "Погружен {$line->wheelSet->qr_code} ({$line->transfer->number})", 'line_id' => $line->id]);
+        return response()->json(['message' => self::wheelMessage($line, 'out'), 'line_id' => $line->id, 'complete' => $line->scanned_out]);
     }
 
-    public function unscan(Trip $trip, TransferLine $line, TripService $service): RedirectResponse
+    public function unscan(Request $request, Trip $trip, TransferLine $line, TripService $service): RedirectResponse
     {
-        $service->unscan($trip, $line);
+        $all = $request->boolean('all', true);
+        $service->unscan($trip, $line, $all);
 
-        return back()->with('success', 'Отметка погрузки снята');
+        return back()->with('success', $all ? 'Отметка погрузки снята' : 'Один скан колеса отменён');
+    }
+
+    /** «Колесо 2 из 4 …» / «Комплект погружен полностью». */
+    public static function wheelMessage(TransferLine $line, string $dir): string
+    {
+        $set = $line->wheelSet->fresh();
+        $out = $dir === 'out';
+        $done = $out ? $line->scanned_out : $line->scanned_in;
+        $wheels = $out ? $line->wheels_out : $line->wheels_in;
+        $expected = $out ? ($line->qty_out ?? $set->qty) : ($line->qty_out ?? $set->qty);
+        $verb = $out ? 'погружен' : 'принят';
+
+        return $done
+            ? "Комплект {$set->qr_code} {$verb} полностью: {$wheels} кол. ({$line->transfer->number})".($out ? '' : " → {$set->status->label()}")
+            : "{$set->qr_code}: колесо {$wheels} из {$expected} ({$line->transfer->number}), сканируйте следующее";
     }
 
     public function ship(Trip $trip, TripService $service): RedirectResponse
@@ -117,9 +133,8 @@ class TripController extends Controller
     {
         $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
         $line = $service->scanIn($trip, $data['code'], $data['qty'] ?? null);
-        $set = $line->wheelSet->fresh();
 
-        return response()->json(['message' => "Принят {$set->qr_code}: {$set->status->label()} ({$line->transfer->number})", 'line_id' => $line->id]);
+        return response()->json(['message' => self::wheelMessage($line, 'in'), 'line_id' => $line->id, 'complete' => $line->scanned_in]);
     }
 
     public function complete(Trip $trip, TripService $service): RedirectResponse

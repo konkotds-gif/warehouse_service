@@ -80,7 +80,7 @@ const badge = { created: 'badge-ink', shipped: 'badge-blue', received: 'badge-gr
         </div>
         <ScanInput @scan="scan" />
         <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span class="text-ink-500">Колёс фактически (если не совпадает с договором):</span>
+            <span class="text-ink-500">Сканируйте бирку на каждом колесе. Если колёс фактически другое число, нажмите его и отсканируйте бирку один раз:</span>
             <button v-for="n in 8" :key="n" class="h-9 w-9 rounded-[10px] border font-bold" :class="qty === n ? 'bg-amber-500 text-white border-amber-500' : 'border-line'" @click="qty = qty === n ? null : n">{{ n }}</button>
         </div>
         <div v-if="msg" class="mt-3 flex gap-2 font-semibold" :class="msg.ok ? 'text-green-700' : 'text-red-600'"><Icon :name="msg.ok ? 'check' : 'alert'" /> {{ msg.text }}</div>
@@ -101,7 +101,9 @@ const badge = { created: 'badge-ink', shipped: 'badge-blue', received: 'badge-gr
                     <td><StatusBadge :status="l.set.status" /></td>
                     <td class="tabular">{{ l.set.address }}</td>
                     <td><span v-if="l.scanned_out" class="text-green-700 font-semibold">✓ {{ l.qty_out }} шт</span><span v-else class="text-ink-500">—</span></td>
-                    <td><span v-if="l.scanned_in" class="text-green-700 font-semibold">✓ {{ l.qty_in }} шт</span><span v-else class="text-ink-500">—</span></td>
+                    <td><span v-if="l.scanned_in" class="text-green-700 font-semibold">✓ {{ l.qty_in }} шт</span>
+                        <span v-else-if="l.wheels_in" class="text-amber-700 font-semibold tabular">{{ l.wheels_in }} / {{ l.qty_out ?? l.set.qty }}</span>
+                        <span v-else class="text-ink-500">—</span></td>
                     <td v-if="t.status === 'created' && !t.trip"><button class="text-xs text-ink-500 underline" @click="removeLine(l)">убрать</button></td>
                 </tr>
             </tbody>

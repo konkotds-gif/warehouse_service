@@ -106,9 +106,10 @@ class TransferController extends Controller
     {
         $this->guardTrip($transfer);
         $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
-        $line = $service->scanOut($transfer, $data['code'], $data['qty'] ?? null);
+        $line = isset($data['qty']) ? $service->scanOut($transfer, $data['code'], $data['qty'])
+            : $service->countOut($service->findLine($transfer, $data['code']));
 
-        return response()->json(['message' => "Погружен {$line->wheelSet->qr_code}", 'line_id' => $line->id]);
+        return response()->json(['message' => TripController::wheelMessage($line, 'out'), 'line_id' => $line->id, 'complete' => $line->scanned_out]);
     }
 
     public function ship(Request $request, Transfer $transfer, TransferService $service): RedirectResponse
@@ -122,10 +123,10 @@ class TransferController extends Controller
     public function scanIn(Request $request, Transfer $transfer, TransferService $service): JsonResponse
     {
         $data = $request->validate(['code' => ['required', 'string'], 'qty' => ['nullable', 'integer', 'min:0', 'max:8']]);
-        $line = $service->scanIn($transfer, $data['code'], $data['qty'] ?? null);
-        $set = $line->wheelSet->fresh();
+        $line = isset($data['qty']) ? $service->scanIn($transfer, $data['code'], $data['qty'])
+            : $service->countIn($service->findLine($transfer, $data['code']));
 
-        return response()->json(['message' => "Принят {$set->qr_code}: {$set->status->label()}", 'line_id' => $line->id]);
+        return response()->json(['message' => TripController::wheelMessage($line, 'in'), 'line_id' => $line->id, 'complete' => $line->scanned_in]);
     }
 
     public function complete(Transfer $transfer, TransferService $service): RedirectResponse

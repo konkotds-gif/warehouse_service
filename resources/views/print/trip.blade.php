@@ -80,8 +80,8 @@
                         <td>{{ $s->title() }}</td>
                         <td>{{ $s->currentAddress() }}</td>
                         <td class="num">{{ $l->qty_out ?? $s->qty }}</td>
-                        <td>{{ $l->scanned_out ? '✓' : '' }}</td>
-                        <td>{{ $l->scanned_in ? '✓' : '' }}</td>
+                        <td>{{ $l->scanned_out ? '✓' : ($l->wheels_out ? $l->wheels_out.'/'.$s->qty : '') }}</td>
+                        <td>{{ $l->scanned_in ? '✓' : ($l->wheels_in ? $l->wheels_in.'/'.($l->qty_out ?? $s->qty) : '') }}</td>
                     </tr>
                 @endforeach
                 <tr class="total"><td colspan="5">Итого по {{ $t->number }}</td><td class="num">{{ $t->lines->sum(fn ($l) => $l->qty_out ?? $l->wheelSet->qty) }}</td><td colspan="2"></td></tr>

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TransferLine extends Model
 {
-    protected $fillable = ['transfer_id', 'wheel_set_id', 'scanned_out', 'scanned_in', 'qty_out', 'qty_in'];
+    protected $fillable = ['transfer_id', 'wheel_set_id', 'scanned_out', 'scanned_in', 'qty_out', 'qty_in', 'wheels_out', 'wheels_in'];
 
     protected function casts(): array
     {

@@ -15,6 +15,12 @@ const lines = computed(() => t.value.transfers.flatMap((tr) => tr.lines.map((l) 
 const active = computed(() => lines.value.filter((l) => (mode.value === 'in' ? ['shipped', 'discrepancy'].includes(l.transfer.status) : true)));
 const done = computed(() => active.value.filter((l) => (mode.value === 'in' ? l.scanned_in : l.scanned_out)).length);
 const missing = computed(() => active.value.length - done.value);
+// Колёса: бирки на колёсах комплекта одинаковые, каждый скан — одно колесо
+const wheelsOf = (l) => (mode.value === 'in' ? l.wheels_in : l.wheels_out);
+const expectedOf = (l) => (mode.value === 'in' ? l.qty_out ?? l.set.qty : l.set.qty);
+const wheelsDone = computed(() => active.value.reduce((n, l) => n + wheelsOf(l), 0));
+const wheelsTotal = computed(() => active.value.reduce((n, l) => n + expectedOf(l), 0));
+const partial = computed(() => active.value.filter((l) => !(mode.value === 'in' ? l.scanned_in : l.scanned_out) && wheelsOf(l) > 0));
 const qty = ref(null);
 const msg = ref(null);
 const flash = ref('');
@@ -40,9 +46,11 @@ async function scan(code) {
     setTimeout(() => (flash.value = ''), 700);
 }
 function ship() {
-    const text = missing.value
-        ? `Не погружено комплектов: ${missing.value}. Они останутся на месте и вернутся в пул перевозок. Отгрузить ведомость?`
-        : 'Все комплекты погружены. Отгрузить ведомость?';
+    const parts = [];
+    if (partial.value.length) parts.push(`Погружены не полностью: ${partial.value.map((l) => `${l.set.qr_code} (${l.wheels_out} из ${l.set.qty})`).join(', ')} — уйдут с фактическим количеством, по ним будет создано задание «расхождение».`);
+    const none = missing.value - partial.value.length;
+    if (none) parts.push(`Не погружено комплектов: ${none}. Они останутся на месте и вернутся в пул перевозок.`);
+    const text = parts.length ? `${parts.join('\n')}\nОтгрузить ведомость?` : 'Все колёса погружены. Отгрузить ведомость?';
     if (confirm(text)) router.post(`/trips/${t.value.id}/ship`);
 }
 function cancel() {
@@ -75,13 +83,14 @@ function detach(tr) {
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2 class="text-lg">{{ mode === 'out' ? 'Погрузка: сканируйте бирки' : 'Приёмка: сканируйте бирки' }}</h2>
             <div class="flex gap-2">
-                <span class="chip bg-blue-50 text-blue-600 tabular">{{ mode === 'out' ? 'погружено' : 'принято' }} {{ done }} / {{ active.length }}</span>
-                <span v-if="missing" class="chip bg-amber-50 text-amber-700 tabular">не хватает {{ missing }}</span>
+                <span class="chip bg-blue-50 text-blue-600 tabular">колёс {{ wheelsDone }} / {{ wheelsTotal }}</span>
+                <span class="chip bg-blue-50 text-blue-600 tabular">комплектов {{ done }} / {{ active.length }}</span>
+                <span v-if="wheelsTotal - wheelsDone > 0" class="chip bg-amber-50 text-amber-700 tabular">не хватает {{ wheelsTotal - wheelsDone }} кол.</span>
             </div>
         </div>
         <ScanInput @scan="scan" />
         <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span class="text-ink-500">Колёс фактически (если не совпадает с договором):</span>
+            <span class="text-ink-500">Сканируйте бирку на каждом колесе. Если колёс фактически не столько, сколько по договору, нажмите число и отсканируйте бирку один раз:</span>
             <button v-for="n in 8" :key="n" class="h-9 w-9 rounded-[10px] border font-bold" :class="qty === n ? 'bg-amber-500 text-white border-amber-500' : 'border-line'" @click="qty = qty === n ? null : n">{{ n }}</button>
         </div>
         <div v-if="msg" class="mt-3 flex gap-2 font-semibold" :class="msg.ok ? 'text-green-700' : 'text-red-600'"><Icon :name="msg.ok ? 'check' : 'alert'" /> {{ msg.text }}</div>
@@ -89,7 +98,7 @@ function detach(tr) {
             <button v-if="mode === 'out'" class="btn-primary" :disabled="!done" @click="ship">Отгрузить ({{ done }} из {{ active.length }}) →</button>
             <button v-if="mode === 'in'" class="btn-primary" @click="router.post(`/trips/${t.id}/complete`)">Завершить приёмку</button>
         </div>
-        <p v-if="mode === 'out'" class="mt-2 text-xs text-ink-500">Сверка идёт по всей ведомости. Неотсканированные комплекты при отгрузке останутся на месте и вернутся в пул перевозок отдельным перемещением.</p>
+        <p v-if="mode === 'out'" class="mt-2 text-xs text-ink-500">Лишний скан (то же колесо дважды) не засчитывается. Сверка идёт по всей ведомости. Неотсканированные комплекты при отгрузке останутся на месте и вернутся в пул перевозок отдельным перемещением.</p>
     </div>
 
     <div v-for="tr in t.transfers" :key="tr.id" class="card overflow-x-auto mb-4">
@@ -103,7 +112,7 @@ function detach(tr) {
         <table class="table">
             <thead><tr><th>QR</th><th>Клиент</th><th>Комплект</th><th>Госномер</th><th>Статус</th><th>Адрес</th><th>Погрузка</th><th>Приёмка</th></tr></thead>
             <tbody>
-                <tr v-for="l in tr.lines" :key="l.id" :class="t.status === 'loading' && !l.scanned_out ? 'bg-amber-50/40' : ''">
+                <tr v-for="l in tr.lines" :key="l.id" :class="(t.status === 'loading' && !l.scanned_out) || (t.status === 'shipped' && !l.scanned_in && tr.status !== 'received') ? 'bg-amber-50/40' : ''">
                     <td class="font-bold tabular"><a :href="`/contracts/${l.set.contract_id}`" class="text-blue-600">{{ l.set.qr_code }}</a></td>
                     <td>{{ l.client }}</td>
                     <td>{{ l.set.title }}</td>
@@ -111,10 +120,17 @@ function detach(tr) {
                     <td><StatusBadge :status="l.set.status" /></td>
                     <td class="tabular">{{ l.set.address }}</td>
                     <td>
-                        <span v-if="l.scanned_out" class="text-green-700 font-semibold">✓ {{ l.qty_out }} шт</span><span v-else class="text-ink-500">—</span>
-                        <button v-if="l.scanned_out && t.status === 'loading' && can('ship-transfer')" class="ml-2 text-xs text-ink-500 underline" @click="router.post(`/trips/${t.id}/lines/${l.id}/unscan`, {}, { preserveScroll: true })">снять</button>
+                        <span v-if="l.scanned_out" class="text-green-700 font-semibold">✓ {{ l.qty_out }} шт</span>
+                        <span v-else-if="l.wheels_out" class="text-amber-700 font-semibold tabular">{{ l.wheels_out }} / {{ l.set.qty }}</span>
+                        <span v-else class="text-ink-500">0 / {{ l.set.qty }}</span>
+                        <template v-if="l.wheels_out && t.status === 'loading' && can('ship-transfer')">
+                            <button class="ml-2 text-xs text-ink-500 underline" title="Отменить скан одного колеса" @click="router.post(`/trips/${t.id}/lines/${l.id}/unscan`, { all: false }, { preserveScroll: true })">−1</button>
+                            <button class="ml-2 text-xs text-ink-500 underline" @click="router.post(`/trips/${t.id}/lines/${l.id}/unscan`, { all: true }, { preserveScroll: true })">сбросить</button>
+                        </template>
                     </td>
-                    <td><span v-if="l.scanned_in" class="text-green-700 font-semibold">✓ {{ l.qty_in }} шт</span><span v-else class="text-ink-500">—</span></td>
+                    <td><span v-if="l.scanned_in" class="text-green-700 font-semibold">✓ {{ l.qty_in }} шт</span>
+                        <span v-else-if="l.wheels_in" class="text-amber-700 font-semibold tabular">{{ l.wheels_in }} / {{ l.qty_out ?? l.set.qty }}</span>
+                        <span v-else class="text-ink-500">—</span></td>
                 </tr>
             </tbody>
         </table>
