@@ -16,8 +16,13 @@ class SmsSettingsController extends Controller
     {
         $smsc = app(SmscGateway::class);
         $password = $smsc->password();
+        $key = $smsc->apiKey();
 
         return [
+            'auth' => $smsc->auth(),
+            'apikey_set' => (bool) $key,
+            'apikey_mask' => $key ? mb_substr($key, 0, 4).'…'.mb_substr($key, -4) : null,
+            'apikey_from_env' => $key && ! Setting::getSecret(SmscGateway::API_KEY),
             'login' => $smsc->login(),
             'sender' => $smsc->sender(),
             'password_set' => (bool) $password,
@@ -34,7 +39,10 @@ class SmsSettingsController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $data = $request->validate([
+            'auth' => ['required', 'in:password,apikey'],
             'login' => ['nullable', 'string', 'max:64'],
+            'apikey' => ['nullable', 'string', 'max:128'],
+            'remove_apikey' => ['nullable', 'boolean'],
             'password' => ['nullable', 'string', 'max:128'],
             'remove_password' => ['nullable', 'boolean'],
             'sender' => ['nullable', 'string', 'max:15'],
@@ -46,6 +54,12 @@ class SmsSettingsController extends Controller
             }],
         ], ['sender.max' => 'Имя отправителя — до 11 букв или 15 цифр, как зарегистрировано в SMSC']);
 
+        Setting::put(SmscGateway::AUTH, $data['auth']);
+        if ($request->boolean('remove_apikey')) {
+            Setting::putSecret(SmscGateway::API_KEY, null);
+        } elseif (filled($data['apikey'] ?? null)) {
+            Setting::putSecret(SmscGateway::API_KEY, trim($data['apikey']));
+        }
         Setting::put(SmscGateway::LOGIN, filled($data['login'] ?? null) ? trim($data['login']) : null);
         Setting::put(SmscGateway::SENDER, filled($data['sender'] ?? null) ? trim($data['sender']) : null);
         if ($request->boolean('remove_password')) {

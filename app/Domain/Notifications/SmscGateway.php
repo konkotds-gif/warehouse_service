@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * SMS-шлюз SMSC (https://smsc.ru/api/http/): send.php и balance.php, ответ в JSON (fmt=3).
- * Логин, пароль и имя отправителя задаются в «Настройках» (пароль — зашифрованным APP_KEY), запасной вариант — .env.
+ * Авторизация на выбор: логин + пароль (login/psw) или API-ключ (apikey, создаётся на smsc.ru/passwords).
+ * Задаётся в «Настройках» (пароль и ключ — зашифрованными APP_KEY), запасной вариант — .env.
  */
 class SmscGateway
 {
@@ -20,10 +21,18 @@ class SmscGateway
 
     public const SENDER = 'sms.smsc.sender';
 
+    public const AUTH = 'sms.smsc.auth';
+
+    public const API_KEY = 'sms.smsc.apikey';
+
+    public const AUTH_PASSWORD = 'password';
+
+    public const AUTH_APIKEY = 'apikey';
+
     /** Тексты ошибок SMSC (error_code) для сотрудников. */
     private const ERRORS = [
         1 => 'ошибка в параметрах запроса',
-        2 => 'неверный логин или пароль SMSC (или IP сервера не в списке разрешённых)',
+        2 => 'неверный логин/пароль или API-ключ SMSC (или IP сервера не в списке разрешённых)',
         3 => 'недостаточно средств на счёте SMSC',
         4 => 'IP сервера временно заблокирован SMSC из-за частых ошибок',
         5 => 'неверный формат даты',
@@ -43,6 +52,22 @@ class SmscGateway
         return Setting::getSecret(self::PASSWORD) ?: (config('services.smsc.password') ?: null);
     }
 
+    public function apiKey(): ?string
+    {
+        return Setting::getSecret(self::API_KEY) ?: (config('services.smsc.apikey') ?: null);
+    }
+
+    /** Способ авторизации: из настроек; если не выбран — по ключу, когда есть только он. */
+    public function auth(): string
+    {
+        $auth = Setting::get(self::AUTH);
+        if (in_array($auth, [self::AUTH_PASSWORD, self::AUTH_APIKEY], true)) {
+            return $auth;
+        }
+
+        return $this->apiKey() && ! ($this->login() && $this->password()) ? self::AUTH_APIKEY : self::AUTH_PASSWORD;
+    }
+
     public function sender(): ?string
     {
         return Setting::get(self::SENDER) ?: (config('services.smsc.sender') ?: null);
@@ -50,7 +75,17 @@ class SmscGateway
 
     public function configured(): bool
     {
-        return filled($this->login()) && filled($this->password());
+        return $this->auth() === self::AUTH_APIKEY
+            ? filled($this->apiKey())
+            : filled($this->login()) && filled($this->password());
+    }
+
+    /** @return array<string, string> */
+    private function credentials(): array
+    {
+        return $this->auth() === self::AUTH_APIKEY
+            ? ['apikey' => (string) $this->apiKey()]
+            : ['login' => (string) $this->login(), 'psw' => (string) $this->password()];
     }
 
     /**
@@ -100,12 +135,12 @@ class SmscGateway
     private function call(string $method, array $params): array
     {
         if (! $this->configured()) {
-            return ['ok' => false, 'data' => [], 'error' => 'SMSC не настроен: укажите логин и пароль в «Настройках»'];
+            return ['ok' => false, 'data' => [], 'error' => $this->auth() === self::AUTH_APIKEY
+                ? 'SMSC не настроен: укажите API-ключ в «Настройках»'
+                : 'SMSC не настроен: укажите логин и пароль в «Настройках»'];
         }
         try {
-            $response = $this->http()->post(rtrim((string) config('services.smsc.url'), '/').'/'.$method, $params + [
-                'login' => $this->login(),
-                'psw' => $this->password(),
+            $response = $this->http()->post(rtrim((string) config('services.smsc.url'), '/').'/'.$method, $params + $this->credentials() + [
                 'fmt' => 3,
                 'charset' => 'utf-8',
             ]);

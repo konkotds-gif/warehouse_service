@@ -35,6 +35,7 @@ return [
         'url' => env('SMSC_API_URL', 'https://smsc.ru/sys'),
         'login' => env('SMSC_LOGIN'),
         'password' => env('SMSC_PASSWORD'),
+        'apikey' => env('SMSC_API_KEY'),
         'sender' => env('SMSC_SENDER'),
     ],
 
