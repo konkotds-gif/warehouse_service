@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Domain\Storage\AcceptanceService;
+use App\Domain\Storage\ContractConfirmation;
 use App\Domain\Storage\GarageSetState;
 use App\Domain\Storage\Pricing;
 use App\Http\Controllers\Controller;
@@ -46,7 +47,7 @@ class AcceptController extends Controller
         ]);
     }
 
-    public function store(Request $request, AcceptanceService $service): RedirectResponse
+    public function store(Request $request, AcceptanceService $service, ContractConfirmation $confirmation): RedirectResponse
     {
         $data = $request->validate([
             'store_id' => ['required', 'integer'],
@@ -76,8 +77,13 @@ class AcceptController extends Controller
             abort(403, 'Приём только в своём магазине');
         }
         $contract = $service->accept($request->all(), $user);
+        // Код подтверждения клиенту по SMS (вне транзакции приёма: сбой шлюза не отменяет договор)
+        $sms = $confirmation->start($contract, $user);
 
-        return redirect()->route('contracts.show', ['contract' => $contract, 'print' => 1])
-            ->with('success', "Договор {$contract->number} оформлен. Напечатайте бирки: {$contract->sets->sum('qty')} шт.");
+        $redirect = redirect()->route('contracts.show', ['contract' => $contract, 'print' => 1])
+            ->with('success', "Договор {$contract->number} оформлен. Напечатайте бирки: {$contract->sets->sum('qty')} шт."
+                .($sms && $sms['sent'] ? ' '.$sms['message'].'.' : ''));
+
+        return $sms && ! $sms['sent'] ? $redirect->with('error', $sms['message']) : $redirect;
     }
 }

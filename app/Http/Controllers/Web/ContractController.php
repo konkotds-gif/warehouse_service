@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Domain\Labels\TagRenderer;
+use App\Domain\Storage\ContractConfirmation;
 use App\Domain\Storage\ContractService;
 use App\Domain\Storage\IssueService;
 use App\Domain\Storage\Pricing;
@@ -42,7 +43,7 @@ class ContractController extends Controller
         ]);
     }
 
-    public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing): Response
+    public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing, ContractConfirmation $confirmation): Response
     {
         $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
             'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
@@ -89,7 +90,27 @@ class ContractController extends Controller
             'stores' => Location::active()->stores()->orderBy('code')->get(['id', 'code', 'name']),
             'otherGarage' => $otherGarage,
             'autoPrint' => $request->boolean('print'),
+            'confirmation' => $confirmation->status($contract),
         ]);
+    }
+
+    /** Отправить клиенту код подтверждения договора (повторно). */
+    public function sendCode(Request $request, StorageContract $contract, ContractConfirmation $confirmation): RedirectResponse
+    {
+        $code = $confirmation->send($contract, $request->user());
+
+        return $code->isDelivered()
+            ? back()->with('success', 'Код подтверждения отправлен на '.$code->phone)
+            : back()->withErrors(['code' => 'Код не отправлен: '.$code->error])->with('error', 'Код не отправлен: '.$code->error);
+    }
+
+    /** Ввод кода из SMS: договор подтверждён клиентом. */
+    public function confirm(Request $request, StorageContract $contract, ContractConfirmation $confirmation): RedirectResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'max:12']], ['code.required' => 'Введите код из SMS']);
+        $confirmation->verify($contract, $data['code'], $request->user());
+
+        return back()->with('success', "Договор {$contract->number} подтверждён кодом из SMS");
     }
 
     private function extendMonth(StorageContract $contract, Pricing $pricing): ?float
