@@ -112,6 +112,14 @@ function priceLine(s) {
     return { diameter: d, tariff: t, price: t ? Number(t.price) : null, amount: t ? Number(t.price) * Number(s.qty || 0) * form.months : null };
 }
 const lines = computed(() => form.sets.map(priceLine));
+// Даты договора: сегодня и окончание срока (как на сервере — addMonthsNoOverflow), без бесплатных дней
+const fmtDate = (x) => x.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const startDate = new Date();
+const endDate = computed(() => {
+    const y = startDate.getFullYear(), m = startDate.getMonth() + form.months;
+    const last = new Date(y, m + 1, 0).getDate();
+    return new Date(y, m, Math.min(startDate.getDate(), last));
+});
 const total = computed(() => lines.value.reduce((a, l) => a + (l.amount || 0), 0));
 const missingPrice = computed(() => lines.value.find((l) => l.diameter && !l.tariff));
 
@@ -234,6 +242,7 @@ const allErrors = computed(() => Object.values(form.errors));
                 <div class="seg w-full grid" :style="{ gridTemplateColumns: `repeat(${monthOptions.length}, minmax(0, 1fr))` }">
                     <button v-for="m in monthOptions" :key="m" type="button" class="tabular" :class="{ on: form.months === m }" @click="form.months = m">{{ m }}</button>
                 </div>
+                <div class="mt-2 text-sm">Договор: <b class="tabular">с {{ fmtDate(startDate) }} по {{ fmtDate(endDate) }}</b></div>
                 <div class="error" v-if="form.errors.months">{{ form.errors.months }}</div>
             </div>
         </div>
@@ -298,6 +307,7 @@ const allErrors = computed(() => Object.values(form.errors));
             <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate_mode === 'none' ? 'без номера' : newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${displayPlate(selectedVehicle?.plate)}` }}</dd></div>
             <div><dt class="text-sm text-ink-500">Магазин приёма</dt><dd class="font-semibold">{{ stores.find((s) => s.id === form.store_id)?.label }}</dd></div>
             <div><dt class="text-sm text-ink-500">Срок и стоимость хранения</dt><dd class="font-semibold">{{ form.months }} мес. · <span class="tabular">{{ money(total) }}</span></dd></div>
+            <div><dt class="text-sm text-ink-500">Срок договора</dt><dd class="font-semibold tabular">с {{ fmtDate(startDate) }} по {{ fmtDate(endDate) }}</dd></div>
         </dl>
         <div class="mt-4 rounded-[12px] bg-bg p-4" v-for="(s, i) in form.sets" :key="i">
             <b>{{ s.qty }} шт</b> · {{ s.tire_size.toUpperCase() }} · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition === 'new' ? 'НОВЫЕ' : 'БУ' }}
