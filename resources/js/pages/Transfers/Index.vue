@@ -34,7 +34,7 @@ const purpose = { storage: 'На хранение', issue: 'К выдаче', re
                     <td><span class="badge" :class="badge[t.status]">{{ t.status_label }}</span>
                         <Link v-if="t.trip" :href="`/trips/${t.trip.id}`" class="ml-1 text-xs text-blue-600 tabular">{{ t.trip.number }}</Link></td>
                     <td>{{ t.from.code }} → {{ t.to.code }}</td>
-                    <td>{{ purpose[t.purpose] }}</td>
+                    <td>{{ purpose[t.purpose] }}<span v-if="t.same_building" class="badge badge-ink ml-1" title="Склад и магазин в одном здании — проведено сразу, без водителя">одно здание</span></td>
                     <td class="tabular">{{ t.lines_count }}</td>
                     <td class="tabular">{{ dt(t.created_at) }}</td>
                     <td class="tabular">{{ dt(t.shipped_at) }}</td>

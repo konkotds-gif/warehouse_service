@@ -7,6 +7,7 @@ enum TaskType: string
     case Place = 'place';
     case Pick = 'pick';
     case PrepareIssue = 'prepare_issue';
+    case IssueToClient = 'issue_client';
     case Inventory = 'inventory';
     case Discrepancy = 'discrepancy';
 
@@ -16,6 +17,7 @@ enum TaskType: string
             self::Place => 'Разместить',
             self::Pick => 'Отобрать к выдаче',
             self::PrepareIssue => 'Подготовить к выдаче',
+            self::IssueToClient => 'Выдать клиенту',
             self::Inventory => 'Инвентаризация',
             self::Discrepancy => 'Разобрать расхождение',
         };

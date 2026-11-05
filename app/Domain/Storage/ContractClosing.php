@@ -40,7 +40,7 @@ final class ContractClosing
                 $hint = in_array($s->status, [SetStatus::Placed, SetStatus::Received, SetStatus::Accepted], true)
                     ? ' — сначала закажите его к выдаче' : ' — дождитесь, когда его привезут в магазин';
                 $blockers[] = "Комплект {$s->qr_code}: «{$s->status->label()}»{$hint}";
-            } elseif ($user && ! $user->isAdmin() && $user->location_id && $user->location_id !== $s->current_location_id) {
+            } elseif ($user && ! IssueService::userAtLocation($user, $s->location)) {
                 $blockers[] = "Комплект {$s->qr_code} готов к выдаче в другом магазине: ".$s->location?->label();
             } else {
                 $toIssue[] = ['id' => $s->id, 'qr_code' => $s->qr_code, 'qty' => $s->qty, 'tire_size' => $s->tire_size];

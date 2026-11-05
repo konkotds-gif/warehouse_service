@@ -24,7 +24,7 @@ final class Present
         return $l ? [
             'id' => $l->id, 'code' => $l->code, 'name' => $l->name, 'type' => $l->type->value,
             'type_label' => $l->type->label(), 'label' => $l->label(), 'address' => $l->address,
-            'is_active' => $l->is_active, 'onec_guid' => $l->onec_guid,
+            'is_active' => $l->is_active, 'onec_guid' => $l->onec_guid, 'building' => $l->building,
         ] : null;
     }
 
@@ -158,7 +158,7 @@ final class Present
     {
         $data = [
             'id' => $t->id, 'number' => $t->number, 'status' => $t->status->value, 'status_label' => $t->status->label(),
-            'purpose' => $t->purpose, 'from' => self::location($t->from), 'to' => self::location($t->to),
+            'purpose' => $t->purpose, 'same_building' => (bool) $t->same_building, 'from' => self::location($t->from), 'to' => self::location($t->to),
             'driver' => $t->driver, 'created_at' => $t->created_at?->toIso8601String(),
             'shipped_at' => $t->shipped_at?->toIso8601String(), 'received_at' => $t->received_at?->toIso8601String(),
             'lines_count' => $t->lines_count ?? ($t->relationLoaded('lines') ? $t->lines->count() : null),

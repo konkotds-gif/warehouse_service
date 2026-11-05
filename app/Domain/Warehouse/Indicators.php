@@ -66,6 +66,14 @@ class Indicators
                 $open->count(), $overdue ? 'red' : 'blue', '/tasks', '/tasks', 'tasks');
         }
 
+        // Склад и магазин в одном здании: клиент ждёт — снять колёса с полки и выдать
+        if ($user->hasAbility('pick')) {
+            $add('to_client', 'Выдать клиенту', 'Склад и магазин в одном здании — снять колёса с полки и передать в зону выдачи',
+                Task::where('type', TaskType::IssueToClient->value)->where('status', TaskStatus::Open->value)
+                    ->when($loc, fn ($q) => $q->whereIn('location_id', $this->buildingIds($location)))->count(),
+                'green', '/tasks?type=issue_client', '/tasks', 'issue');
+        }
+
         // Привезли на склад, но ещё не разложили по ячейкам
         if ($user->hasAbility('place') && $isWarehouse) {
             $add('to_place', 'Ждут размещения', 'Комплекты на складе без ячейки — скан бирки → скан ячейки',
@@ -110,5 +118,11 @@ class Indicators
         }
 
         return $items;
+    }
+
+    /** Точка пользователя и точки того же здания. @return list<int> */
+    private function buildingIds(Location $location): array
+    {
+        return [$location->id, ...$location->buildingMates()->pluck('id')->all()];
     }
 }

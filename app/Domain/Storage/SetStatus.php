@@ -60,7 +60,7 @@ enum SetStatus: string
             self::Received => [self::Placed, self::InTransit, self::Ordered, self::Disposed, self::Lost],
             self::Placed => [self::Placed, self::Ordered, self::InTransit, self::Disposed, self::Lost],
             self::Ordered => [self::InTransit, self::Placed, self::Ready, self::Received, self::Accepted, self::Lost],
-            self::Ready => [self::Issued, self::InTransit, self::Accepted, self::Lost],
+            self::Ready => [self::Issued, self::InTransit, self::Accepted, self::Placed, self::Received, self::Lost],
             self::Issued => [],
             self::Disposed => [],
             self::Lost => [self::Placed, self::Received, self::Accepted, self::Disposed],

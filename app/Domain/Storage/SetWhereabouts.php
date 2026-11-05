@@ -2,9 +2,12 @@
 
 namespace App\Domain\Storage;
 
+use App\Domain\Warehouse\TaskStatus;
+use App\Domain\Warehouse\TaskType;
 use App\Domain\Warehouse\TransferStatus;
 use App\Models\Location;
 use App\Models\Movement;
+use App\Models\Task;
 use App\Models\Transfer;
 use App\Models\TransferLine;
 use App\Models\WheelSet;
@@ -39,9 +42,14 @@ class SetWhereabouts
             ->whereIn('to_status', [SetStatus::Issued->value, SetStatus::Disposed->value])
             ->orderByDesc('id')->get()->unique('wheel_set_id')->keyBy('wheel_set_id');
 
+        // Склад и магазин в одном здании: заказ проведён сразу, кладовщик снимает колёса с полки
+        $clientTasks = Task::query()->whereIn('wheel_set_id', $ids)->where('type', TaskType::IssueToClient->value)
+            ->whereIn('status', [TaskStatus::Open->value, TaskStatus::Done->value])
+            ->orderByDesc('id')->get()->unique('wheel_set_id')->keyBy('wheel_set_id');
+
         $out = [];
         foreach ($sets as $set) {
-            $out[$set->id] = self::describe($set, $pending->get($set->id), $final->get($set->id));
+            $out[$set->id] = self::describe($set, $pending->get($set->id), $final->get($set->id), $clientTasks->get($set->id));
         }
 
         return $out;
@@ -49,9 +57,9 @@ class SetWhereabouts
 
     /**
      * @return array{kind: string, place: string, detail: string|null, address: string, location: string|null,
-     *               row: string|null, cell: string|null, pending: string|null}
+     *               row: string|null, cell: string|null, pending: string|null, building: array<string, mixed>|null}
      */
-    public static function describe(WheelSet $set, ?TransferLine $pendingLine = null, ?Movement $final = null): array
+    public static function describe(WheelSet $set, ?TransferLine $pendingLine = null, ?Movement $final = null, ?Task $clientTask = null): array
     {
         $cell = $set->cell;
         $base = [
@@ -60,6 +68,7 @@ class SetWhereabouts
             'row' => null,
             'cell' => null,
             'pending' => null,
+            'building' => null,
         ];
 
         $result = match (true) {
@@ -98,6 +107,21 @@ class SetWhereabouts
             $t = $pendingLine->transfer;
             $result['pending'] = sprintf('Включён в перемещение %s → %s, ждёт погрузки%s', $t->number,
                 self::locationName($t->to), $t->trip ? ' (ведомость '.$t->trip->number.')' : '');
+        }
+
+        // Готов к выдаче в магазине того же здания: пока задание открыто, колёса ещё на полке склада
+        if ($clientTask && $set->status === SetStatus::Ready && $set->issue_store_id !== null) {
+            $p = $clientTask->payload ?? [];
+            $onShelf = $clientTask->status === TaskStatus::Open;
+            $result['building'] = [
+                'on_shelf' => $onShelf,
+                'shelf' => $p['shelf'] ?? null,
+                'transfer_number' => $p['transfer_number'] ?? null,
+                'note' => $onShelf
+                    ? sprintf('Склад в том же здании — без водителя (%s). Кладовщику: снять с полки %s и выдать клиенту', $p['transfer_number'] ?? '', $p['shelf'] ?? '')
+                    : sprintf('Склад в том же здании — кладовщик снял колёса с полки %s, ждут клиента', $p['shelf'] ?? ''),
+            ];
+            $result['detail'] = $result['building']['note'];
         }
 
         return array_merge($base, $result);

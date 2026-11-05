@@ -80,6 +80,12 @@ final class TransferService
         });
     }
 
+    /** Комплект уже включён в неотгруженное или ещё не принятое перемещение. */
+    public function isInOpenTransfer(WheelSet $set): bool
+    {
+        return $this->openLines()->where('wheel_set_id', $set->id)->exists();
+    }
+
     private function openLineSetIds()
     {
         return $this->openLines()->select('wheel_set_id');
@@ -452,6 +458,55 @@ final class TransferService
                 $transfer = $this->create($set->location, $store, [$set->id], $user, null, 'issue');
             }
             $this->syncPickTask($transfer);
+
+            return $transfer->fresh('lines.wheelSet');
+        });
+    }
+
+    /**
+     * Перемещение внутри одного здания (склад и магазин под одной крышей): водителю ничего не передаётся,
+     * колёса снимают с полки. Документ создаётся и проводится сразу — отгрузка и приёмка одним действием,
+     * без пула «Перевозки» и ведомости. Комплект получает статус $status в пункте назначения
+     * (в ячейке $cellId, если она указана). Возвращает проведённое перемещение.
+     *
+     * @param  array<string, mixed>  $changes  доп. поля комплекта (issue_store_id и т.п.)
+     */
+    public function moveWithinBuilding(WheelSet $set, Location $to, SetStatus $status, string $purpose, ?User $user = null,
+        ?int $cellId = null, string $action = 'receive', array $changes = []): Transfer
+    {
+        return DB::transaction(function () use ($set, $to, $status, $purpose, $user, $cellId, $action, $changes) {
+            $set = $this->mover->lock($set);
+            $from = $set->location ?? $set->cell?->location;
+            if (! $from || ! $from->sameBuildingAs($to)) {
+                throw new DomainError("{$to->code} и место хранения комплекта {$set->qr_code} — не одно здание");
+            }
+            if ($this->openLines()->where('wheel_set_id', $set->id)->exists()) {
+                throw new DomainError("Комплект {$set->qr_code} уже включён в другое перемещение");
+            }
+            $fromAddress = $set->currentAddress();
+            $transfer = Transfer::create([
+                'number' => $this->numbers->transferNumber(),
+                'from_location_id' => $from->id,
+                'to_location_id' => $to->id,
+                'status' => TransferStatus::Received,
+                'purpose' => $purpose,
+                'same_building' => true,
+                'created_by' => $user?->id,
+                'shipped_at' => now(),
+                'received_at' => now(),
+                'notes' => 'Одно здание: без водителя',
+            ]);
+            $transfer->lines()->create([
+                'wheel_set_id' => $set->id, 'scanned_out' => true, 'scanned_in' => true,
+                'qty_out' => $set->qty, 'qty_in' => $set->qty, 'wheels_out' => $set->qty, 'wheels_in' => $set->qty,
+            ]);
+            $this->mover->transition($set, $status, $action, $changes + [
+                'current_location_id' => $to->id,
+                'current_cell_id' => $cellId,
+                'transfer_id' => null,
+            ], ['qty' => $set->qty, 'transfer_id' => $transfer->id,
+                'note' => "{$transfer->number}: {$fromAddress} → {$to->code}, одно здание — без водителя"]);
+            $this->outbox->record('transfer.completed', $this->outbox->transferPayload($transfer->fresh()));
 
             return $transfer->fresh('lines.wheelSet');
         });

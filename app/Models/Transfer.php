@@ -13,12 +13,12 @@ class Transfer extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['number', 'from_location_id', 'to_location_id', 'status', 'purpose', 'driver', 'trip_id',
+    protected $fillable = ['number', 'from_location_id', 'to_location_id', 'status', 'purpose', 'same_building', 'driver', 'trip_id',
         'created_by', 'shipped_at', 'received_at', 'notes'];
 
     protected function casts(): array
     {
-        return ['status' => TransferStatus::class, 'shipped_at' => 'datetime', 'received_at' => 'datetime'];
+        return ['status' => TransferStatus::class, 'same_building' => 'boolean', 'shipped_at' => 'datetime', 'received_at' => 'datetime'];
     }
 
     public function from(): BelongsTo
