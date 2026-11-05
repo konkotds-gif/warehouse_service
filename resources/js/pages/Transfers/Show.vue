@@ -6,6 +6,7 @@ import ScanInput from '../../Components/ScanInput.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { postJson, beep } from '../../lib/http';
 import { dt, can } from '../../lib/format';
+import { ask } from '../../lib/confirm';
 
 const props = defineProps({ transfer: Object });
 const t = computed(() => props.transfer);
@@ -32,11 +33,11 @@ async function scan(code) {
     }
     setTimeout(() => (flash.value = ''), 700);
 }
-function cancel() {
-    if (confirm(`Отменить перемещение ${t.value.number}? Комплекты останутся на месте.`)) router.post(`/transfers/${t.value.id}/cancel`);
+async function cancel() {
+    if (await ask('Комплекты останутся на месте и снова будут доступны для перемещения.', { title: `Отменить перемещение ${t.value.number}?`, ok: 'Отменить перемещение', cancel: 'Не отменять', danger: true })) router.post(`/transfers/${t.value.id}/cancel`);
 }
-function removeLine(l) {
-    if (confirm(`Убрать ${l.set.qr_code} из перемещения?`)) router.delete(`/transfers/${t.value.id}/lines/${l.id}`, { preserveScroll: true });
+async function removeLine(l) {
+    if (await ask('Комплект останется на месте. Если в перемещении больше ничего нет, оно будет отменено.', { title: `Убрать ${l.set.qr_code} из перемещения?`, ok: 'Убрать', danger: true })) router.delete(`/transfers/${t.value.id}/lines/${l.id}`, { preserveScroll: true });
 }
 const badge = { created: 'badge-ink', shipped: 'badge-blue', received: 'badge-green', discrepancy: 'badge-red', cancelled: 'badge-gray' };
 </script>

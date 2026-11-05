@@ -4,6 +4,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import PageHeader from '../../Components/PageHeader.vue';
 import LdapSettings from '../../Components/LdapSettings.vue';
 import { dt } from '../../lib/format';
+import { ask } from '../../lib/confirm';
 
 const props = defineProps({ cars: Object, scheduler_last_run_at: String, ldap: Object });
 const form = useForm({ api_url: props.cars.api_url, api_key: '', remove_key: false });
@@ -12,8 +13,8 @@ const busy = ref('');
 function save() {
     form.put('/admin/settings/cars', { preserveScroll: true, onSuccess: () => form.reset('api_key', 'remove_key') });
 }
-function removeKey() {
-    if (!confirm('Удалить ключ API? Синхронизация справочника остановится.')) return;
+async function removeKey() {
+    if (!(await ask('Синхронизация справочника марок и моделей остановится.', { title: 'Удалить ключ API?', ok: 'Удалить', danger: true }))) return;
     form.transform((d) => ({ ...d, api_key: '', remove_key: true })).put('/admin/settings/cars', { preserveScroll: true, onFinish: () => form.transform((d) => d) });
 }
 function action(name, data = {}) {

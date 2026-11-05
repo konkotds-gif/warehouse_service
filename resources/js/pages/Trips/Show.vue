@@ -6,6 +6,7 @@ import ScanInput from '../../Components/ScanInput.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { postJson, beep } from '../../lib/http';
 import { dt, can } from '../../lib/format';
+import { ask } from '../../lib/confirm';
 
 const props = defineProps({ trip: Object, pool: Array });
 const t = computed(() => props.trip);
@@ -16,7 +17,7 @@ const active = computed(() => lines.value.filter((l) => (mode.value === 'in' ? [
 const done = computed(() => active.value.filter((l) => (mode.value === 'in' ? l.scanned_in : l.scanned_out)).length);
 const missing = computed(() => active.value.length - done.value);
 // Колёса: бирки на колёсах комплекта одинаковые, каждый скан — одно колесо
-const wheelsOf = (l) => (mode.value === 'in' ? l.wheels_in : l.wheels_out);
+const wheelsOf = (l) => (mode.value === 'in' ? (l.scanned_in ? l.qty_in : l.wheels_in) : (l.scanned_out ? l.qty_out : l.wheels_out));
 const expectedOf = (l) => (mode.value === 'in' ? l.qty_out ?? l.set.qty : l.set.qty);
 const wheelsDone = computed(() => active.value.reduce((n, l) => n + wheelsOf(l), 0));
 const wheelsTotal = computed(() => active.value.reduce((n, l) => n + expectedOf(l), 0));
@@ -45,19 +46,19 @@ async function scan(code) {
     }
     setTimeout(() => (flash.value = ''), 700);
 }
-function ship() {
+async function ship() {
     const parts = [];
     if (partial.value.length) parts.push(`Погружены не полностью: ${partial.value.map((l) => `${l.set.qr_code} (${l.wheels_out} из ${l.set.qty})`).join(', ')} — уйдут с фактическим количеством, по ним будет создано задание «расхождение».`);
     const none = missing.value - partial.value.length;
     if (none) parts.push(`Не погружено комплектов: ${none}. Они останутся на месте и вернутся в пул перевозок.`);
-    const text = parts.length ? `${parts.join('\n')}\nОтгрузить ведомость?` : 'Все колёса погружены. Отгрузить ведомость?';
-    if (confirm(text)) router.post(`/trips/${t.value.id}/ship`);
+    const text = parts.length ? parts.join('\n\n') : 'Все колёса погружены.';
+    if (await ask(text, { title: `Отгрузка ведомости ${t.value.number}`, ok: 'Отгрузить' })) router.post(`/trips/${t.value.id}/ship`);
 }
-function cancel() {
-    if (confirm('Отменить ведомость? Перемещения вернутся в пул, отметки погрузки сбросятся.')) router.post(`/trips/${t.value.id}/cancel`);
+async function cancel() {
+    if (await ask('Перемещения вернутся в пул перевозок, отметки погрузки сбросятся.', { title: `Отменить ведомость ${t.value.number}?`, ok: 'Отменить ведомость', cancel: 'Не отменять', danger: true })) router.post(`/trips/${t.value.id}/cancel`);
 }
-function detach(tr) {
-    if (confirm(`Убрать ${tr.number} из ведомости? Оно вернётся в пул перевозок.`)) router.delete(`/trips/${t.value.id}/transfers/${tr.id}`, { preserveScroll: true });
+async function detach(tr) {
+    if (await ask('Перемещение вернётся в пул перевозок, отметки погрузки по нему сбросятся.', { title: `Убрать ${tr.number} из ведомости?`, ok: 'Убрать', danger: true })) router.delete(`/trips/${t.value.id}/transfers/${tr.id}`, { preserveScroll: true });
 }
 </script>
 

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
 import { getJson, postJson } from '../lib/http';
 import { dt } from '../lib/format';
+import { ask } from '../lib/confirm';
 
 // «Настройки → Вход через Active Directory»: подключение, проверка, сопоставление групп AD и ролей.
 const props = defineProps({ ldap: Object });
@@ -16,8 +17,8 @@ watch(() => form.encryption, (enc, old) => {
 function save() {
     form.put('/admin/settings/ldap', { preserveScroll: true, onSuccess: () => form.reset('bind_password', 'remove_password') });
 }
-function removePassword() {
-    if (!confirm('Удалить пароль сервисной учётной записи? Вход через AD перестанет работать.')) return;
+async function removePassword() {
+    if (!(await ask('Вход через Active Directory перестанет работать, пока не будет указан новый пароль.', { title: 'Удалить пароль сервисной учётной записи?', ok: 'Удалить', danger: true }))) return;
     form.transform((d) => ({ ...d, bind_password: '', remove_password: true, enabled: false }))
         .put('/admin/settings/ldap', { preserveScroll: true, onFinish: () => form.transform((d) => d) });
 }
@@ -87,8 +88,8 @@ function saveMapping() {
     const opts = { preserveScroll: true, onSuccess: resetMapping };
     mapping.id ? mapping.put(`/admin/settings/ldap/mappings/${mapping.id}`, opts) : mapping.post('/admin/settings/ldap/mappings', opts);
 }
-function deleteMapping(m) {
-    if (!confirm(`Удалить сопоставление для группы «${m.group_name}»? Её участники потеряют эту роль при следующем входе или сверке.`)) return;
+async function deleteMapping(m) {
+    if (!(await ask('Участники группы потеряют эту роль при следующем входе или сверке.', { title: `Удалить сопоставление для группы «${m.group_name}»?`, ok: 'Удалить', danger: true }))) return;
     router.delete(`/admin/settings/ldap/mappings/${m.id}`, { preserveScroll: true });
 }
 

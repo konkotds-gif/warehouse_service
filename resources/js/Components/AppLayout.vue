@@ -5,6 +5,7 @@ import Icon from './Icon.vue';
 import Logo from './Logo.vue';
 import NetChip from './NetChip.vue';
 import Toasts from './Toasts.vue';
+import ConfirmDialog from './ConfirmDialog.vue';
 
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
@@ -101,5 +102,6 @@ function search() {
         </nav>
 
         <Toasts />
+        <ConfirmDialog />
     </div>
 </template>
