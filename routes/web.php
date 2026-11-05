@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Web\AcceptController;
 use App\Http\Controllers\Web\Admin\IntegrationController;
+use App\Http\Controllers\Web\Admin\LdapSettingsController;
 use App\Http\Controllers\Web\Admin\SettingsController;
 use App\Http\Controllers\Web\Admin\TariffController;
 use App\Http\Controllers\Web\Admin\UserController;
@@ -130,5 +131,13 @@ Route::middleware('auth')->group(function () {
         Route::put('/admin/settings/cars', [SettingsController::class, 'updateCars'])->name('admin.settings.cars');
         Route::post('/admin/settings/cars/test', [SettingsController::class, 'testCars'])->name('admin.settings.cars.test');
         Route::post('/admin/settings/cars/sync', [SettingsController::class, 'syncCars'])->name('admin.settings.cars.sync');
+        Route::put('/admin/settings/ldap', [LdapSettingsController::class, 'update'])->name('admin.settings.ldap');
+        Route::post('/admin/settings/ldap/test', [LdapSettingsController::class, 'test'])->name('admin.settings.ldap.test');
+        Route::post('/admin/settings/ldap/test-user', [LdapSettingsController::class, 'testUser'])->middleware('throttle:20,1')->name('admin.settings.ldap.test-user');
+        Route::get('/admin/settings/ldap/groups', [LdapSettingsController::class, 'groups'])->name('admin.settings.ldap.groups');
+        Route::post('/admin/settings/ldap/sync', [LdapSettingsController::class, 'sync'])->name('admin.settings.ldap.sync');
+        Route::post('/admin/settings/ldap/mappings', [LdapSettingsController::class, 'storeMapping'])->name('admin.settings.ldap.mappings.store');
+        Route::put('/admin/settings/ldap/mappings/{mapping}', [LdapSettingsController::class, 'updateMapping'])->name('admin.settings.ldap.mappings.update');
+        Route::delete('/admin/settings/ldap/mappings/{mapping}', [LdapSettingsController::class, 'destroyMapping'])->name('admin.settings.ldap.mappings.destroy');
     });
 });

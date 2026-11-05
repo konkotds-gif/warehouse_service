@@ -14,7 +14,9 @@ class User extends Authenticatable
 
     protected $fillable = ['login', 'name', 'email', 'password', 'role', 'location_id', 'is_active'];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $attributes = ['auth_source' => 'local'];
+
+    protected $hidden = ['password', 'remember_token', 'ldap_guid', 'ldap_dn'];
 
     protected function casts(): array
     {
@@ -23,6 +25,8 @@ class User extends Authenticatable
             'role' => Role::class,
             'is_active' => 'boolean',
             'last_login_at' => 'datetime',
+            'ldap_synced_at' => 'datetime',
+            'ldap_denied_at' => 'datetime',
         ];
     }
 
@@ -36,8 +40,20 @@ class User extends Authenticatable
         return $this->role === Role::Admin;
     }
 
+    /** Учётная запись из домена (Active Directory): роль назначается по группам AD. */
+    public function isLdap(): bool
+    {
+        return $this->auth_source === 'ldap';
+    }
+
+    /** Может работать: не заблокирован вручную и (для доменных) доступ не закрыт со стороны AD. */
+    public function canSignIn(): bool
+    {
+        return $this->is_active && $this->ldap_denied_at === null;
+    }
+
     public function hasAbility(string $ability): bool
     {
-        return $this->is_active && $this->role->can($ability);
+        return $this->canSignIn() && $this->role->can($ability);
     }
 }
