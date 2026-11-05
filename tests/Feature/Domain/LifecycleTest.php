@@ -15,6 +15,7 @@ use App\Domain\Warehouse\TransferStatus;
 use App\Models\Movement;
 use App\Models\OutboxEvent;
 use App\Models\Task;
+use App\Models\Transfer;
 use App\Models\WheelSet;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -75,11 +76,15 @@ class LifecycleTest extends TestCase
         $this->assertSame($wh->id, $pick->location_id);
         $this->assertSame(now()->addDays(2)->toDateString(), $pick->due_date->toDateString(), 'срок D−1');
 
-        // 4. Склад → магазин выдачи: по приёмке «Готов к выдаче», SMS
+        // 4. Склад → магазин выдачи: перемещение «к выдаче» создано автоматически, по приёмке «Готов к выдаче», SMS
         app()->instance('sms.sent', collect());
-        $candidates = $this->transfers()->issueCandidates($wh, $store5);
-        $this->assertCount(1, $candidates);
-        $this->shipAndReceive($set, $wh, $store5);
+        $this->assertCount(0, $this->transfers()->issueCandidates($wh, $store5), 'комплект уже в перемещении');
+        $auto = Transfer::where('purpose', 'issue')->sole();
+        $this->assertSame($auto->id, $pick->payload['transfer_id']);
+        $this->transfers()->scanOut($auto, $set->qr_code, $set->qty);
+        $this->transfers()->ship($auto);
+        $this->assertSame('done', Task::find($pick->id)->status->value, 'задание «отобрать» закрыто отгрузкой');
+        $this->transfers()->scanIn($auto, $set->qr_code);
         $set->refresh();
         $this->assertSame(SetStatus::Ready, $set->status);
         $this->assertNull($set->current_cell_id, 'ячейка освобождена');
@@ -238,7 +243,8 @@ class LifecycleTest extends TestCase
         $issue->order($set2->fresh(), $store, now()->addDay());
         $issue->cancelOrder($set2->fresh());
         $this->assertSame(SetStatus::Placed, $set2->fresh()->status);
-        $this->assertSame('cancelled', Task::where('wheel_set_id', $set2->id)->where('type', 'pick')->first()->status->value);
+        $this->assertSame('cancelled', Task::where('type', 'pick')->sole()->status->value);
+        $this->assertSame(TransferStatus::Cancelled, Transfer::where('purpose', 'issue')->sole()->status);
     }
 
     public function test_issue_requires_ready_status(): void

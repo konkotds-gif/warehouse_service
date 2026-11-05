@@ -26,11 +26,17 @@ const go = (patch) => router.get('/tasks', { ...props.filters, ...patch, locatio
             <div class="flex-1 min-w-[200px]">
                 <div class="font-semibold">{{ t.title }}</div>
                 <div class="text-sm text-ink-500">{{ t.location }} · срок {{ d(t.due_date) }}<template v-if="t.set"> · сейчас: <span class="tabular">{{ t.set.address }}</span></template></div>
+                <div v-if="t.payload?.sets?.length" class="mt-2 flex flex-wrap gap-1.5">
+                    <Link v-for="s in t.payload.sets" :key="s.id" :href="`/contracts/${s.contract_id}`" class="badge badge-ink tabular" :title="s.tire_size">
+                        {{ s.qr_code }} · {{ s.address }} · {{ s.qty }} шт
+                    </Link>
+                </div>
             </div>
             <Link v-if="t.set" :href="`/contracts/${t.set.contract_id}`" class="btn-link !min-h-9">Договор →</Link>
             <Link v-if="t.type === 'place'" href="/scan/place" class="btn-blue !min-h-9">Разместить</Link>
             <Link v-if="t.type === 'inventory' && t.payload?.inventory_id" :href="`/inventories/${t.payload.inventory_id}`" class="btn-blue !min-h-9">Открыть</Link>
-            <Link v-if="t.type === 'pick'" href="/transfers/create" class="btn-blue !min-h-9">Сформировать рейс</Link>
+            <Link v-if="t.type === 'pick' && t.payload?.transfer_id" :href="`/transfers/${t.payload.transfer_id}`" class="btn-blue !min-h-9">Перемещение {{ t.payload.transfer_number }} →</Link>
+            <Link v-else-if="t.type === 'pick'" href="/transfers/create" class="btn-blue !min-h-9">Сформировать рейс</Link>
             <button v-if="t.status === 'open'" class="btn-secondary !min-h-9" @click="router.post(`/tasks/${t.id}/done`, {}, { preserveScroll: true })">Выполнено</button>
         </div>
         <div v-if="!tasks.data.length" class="card p-8 text-center text-ink-500">Заданий нет</div>

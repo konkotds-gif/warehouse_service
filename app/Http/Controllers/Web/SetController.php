@@ -23,7 +23,7 @@ class SetController extends Controller
 
         return back()->with('success', $set->status->value === 'ready'
             ? 'Комплект уже в этом магазине — готов к выдаче'
-            : 'Заказ к выдаче создан, складу отправлено задание «отобрать»');
+            : 'Заказ к выдаче создан: комплект добавлен в перемещение в магазин (Задания → Перевозки), складу — задание «отобрать»');
     }
 
     public function cancelOrder(WheelSet $set, IssueService $service): RedirectResponse

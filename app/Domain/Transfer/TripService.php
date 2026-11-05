@@ -153,6 +153,7 @@ final class TripService
                         'notes' => "Не погружено по ведомости {$trip->number} (из {$transfer->number})",
                     ]);
                     TransferLine::whereIn('id', $missing->pluck('id'))->update(['transfer_id' => $rest->id]);
+                    $this->transfers->syncPickTask($rest);
                     $returned->push($rest);
                 }
                 $shipped->push($this->transfers->ship($transfer, $trip->driver));
