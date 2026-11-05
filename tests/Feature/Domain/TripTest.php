@@ -9,6 +9,7 @@ use App\Domain\Transfer\TripService;
 use App\Domain\Users\Role;
 use App\Domain\Warehouse\TransferStatus;
 use App\Domain\Warehouse\TripStatus;
+use App\Models\Task;
 use App\Models\Transfer;
 use Tests\TestCase;
 
@@ -23,6 +24,17 @@ class TripTest extends TestCase
     private function trips(): TripService
     {
         return app(TripService::class);
+    }
+
+    /** Бирки на колёсах одинаковые: сканируем столько раз, сколько колёс. */
+    private function loadAll($trip, $set)
+    {
+        $line = null;
+        for ($i = 0; $i < $set->qty; $i++) {
+            $line = $this->trips()->scanOut($trip, $set->qr_code);
+        }
+
+        return $line;
     }
 
     private function second($store)
@@ -52,14 +64,23 @@ class TripTest extends TestCase
         $this->assertSame('Иванов', $t1->fresh()->driver);
 
         // Скан идёт по всей ведомости, перемещение определяется само
-        $this->assertSame($t1->id, $this->trips()->scanOut($trip, $a->qr_code)->transfer_id);
-        $this->assertSame($t2->id, $this->trips()->scanOut($trip, $c->qr_code)->transfer_id);
+        $first = $this->trips()->scanOut($trip, $a->qr_code);
+        $this->assertSame($t1->id, $first->transfer_id);
+        $this->assertSame(1, $first->wheels_out);
+        $this->assertFalse($first->scanned_out, 'одно колесо из четырёх — комплект ещё не погружен');
+        for ($i = 1; $i < $a->qty; $i++) {
+            $line = $this->trips()->scanOut($trip, $a->qr_code);
+        }
+        $this->assertTrue($line->scanned_out);
+        $this->assertSame($a->qty, $line->qty_out);
+        $this->assertSame($t2->id, $this->loadAll($trip, $c)->transfer_id);
         try {
             $this->trips()->scanOut($trip, $a->qr_code);
-            $this->fail('повторный скан');
+            $this->fail('лишний скан');
         } catch (DomainError $e) {
-            $this->assertStringContainsString('уже погружен', $e->getMessage());
+            $this->assertStringContainsString('Лишний скан', $e->getMessage());
         }
+        $this->assertSame($a->qty, $line->fresh()->wheels_out, 'лишний скан не засчитан');
 
         // b не погружен: уходит в новое перемещение в пул
         $result = $this->trips()->ship($trip);
@@ -74,10 +95,13 @@ class TripTest extends TestCase
         $this->assertSame(SetStatus::InTransit, $a->fresh()->status);
         $this->assertSame(1, $t1->lines()->count());
 
-        // Приёмка по ведомости закрывает её
-        $this->trips()->scanIn($trip, $a->qr_code);
+        // Приёмка по ведомости закрывает её (тоже поштучно)
+        $this->trips()->scanIn($trip, $a->qr_code, $a->qty);
         $this->assertSame(TripStatus::Shipped, $trip->fresh()->status);
-        $this->trips()->scanIn($trip, $c->qr_code);
+        for ($i = 0; $i < $c->qty; $i++) {
+            $in = $this->trips()->scanIn($trip, $c->qr_code);
+        }
+        $this->assertTrue($in->scanned_in);
         $this->assertSame(TransferStatus::Received, $t2->fresh()->status);
         $this->assertSame(TripStatus::Done, $trip->fresh()->status);
     }
@@ -104,7 +128,7 @@ class TripTest extends TestCase
             $this->assertStringContainsString($t2->number, $e->getMessage());
         }
         $this->trips()->addTransfers($trip, [$t2->id]);
-        $this->trips()->scanOut($trip, $b->qr_code);
+        $this->loadAll($trip, $b);
         $result = $this->trips()->ship($trip);
         $this->assertSame([$t2->id], $result['shipped']->pluck('id')->all());
         $this->assertNull($t1->fresh()->trip_id, 'без единого скана — обратно в пул');
@@ -113,9 +137,40 @@ class TripTest extends TestCase
         $trip2 = $this->trips()->create([$t1->id]);
         $this->trips()->scanOut($trip2, $a->qr_code);
         $this->trips()->cancel($trip2);
+        $this->assertSame(0, $t1->lines()->first()->wheels_out);
         $this->assertSame(TripStatus::Cancelled, $trip2->fresh()->status);
         $this->assertNull($t1->fresh()->trip_id);
         $this->assertFalse((bool) $t1->lines()->first()->scanned_out);
+    }
+
+    public function test_partial_loading_ships_actual_wheels_with_discrepancy_and_undo(): void
+    {
+        $store = $this->store();
+        $wh = $this->warehouse();
+        $a = $this->firstSet($this->accept($store));
+        $t = $this->transfers()->create($store, $wh, [$a->id]);
+        $trip = $this->trips()->create([$t->id]);
+        $line = $this->trips()->scanOut($trip, $a->qr_code);
+        $this->trips()->scanOut($trip, $a->qr_code);
+        $this->trips()->unscan($trip, $line, false); // ошибочный скан −1
+        $this->assertSame(1, $line->fresh()->wheels_out);
+        $this->trips()->scanOut($trip, $a->qr_code);
+        $this->trips()->scanOut($trip, $a->qr_code); // итого 3 из 4
+
+        $this->trips()->ship($trip);
+        $line = $line->fresh();
+        $this->assertTrue($line->scanned_out);
+        $this->assertSame(3, $line->qty_out);
+        $this->assertSame(TransferStatus::Shipped, $t->fresh()->status);
+        $this->assertSame(1, Task::where('type', 'discrepancy')->where('wheel_set_id', $a->id)->count());
+
+        // Приёмка: ожидаем погруженные 3, принимаем поштучно
+        $this->trips()->scanIn($trip, $a->qr_code);
+        $this->trips()->scanIn($trip, $a->qr_code);
+        $this->assertSame(TransferStatus::Shipped, $t->fresh()->status);
+        $this->trips()->complete($trip); // принято 2 из 3 — завершение приёмки фиксирует факт
+        $this->assertSame(2, $line->fresh()->qty_in);
+        $this->assertSame(TripStatus::Done, $trip->fresh()->status);
     }
 
     public function test_remove_last_line_cancels_transfer(): void
@@ -149,8 +204,13 @@ class TripTest extends TestCase
         $trip = $t->fresh()->trip;
         $this->get("/trips/{$trip->id}")->assertOk()->assertInertia(fn ($p) => $p->component('Trips/Show')->where('trip.number', $trip->number));
         $this->postJson("/w/transfers/{$t->id}/scan-out", ['code' => $a->qr_code])->assertStatus(409);
-        $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $a->qr_code])->assertOk();
-        $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $b->qr_code])->assertOk();
+        $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $a->qr_code])->assertOk()
+            ->assertJsonPath('complete', false)->assertJsonPath('message', fn ($m) => str_contains($m, "колесо 1 из {$a->qty}"));
+        for ($i = 1; $i < $a->qty; $i++) {
+            $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $a->qr_code])->assertOk();
+        }
+        $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $a->qr_code])->assertStatus(409);
+        $this->postJson("/w/trips/{$trip->id}/scan-out", ['code' => $b->qr_code, 'qty' => $b->qty])->assertOk()->assertJsonPath('complete', true);
         $this->get("/trips/{$trip->id}/print")->assertOk()->assertSee($trip->number)->assertSee('Петров')->assertSee($a->qr_code);
         $this->get("/transfers/{$t->id}/print")->assertOk()->assertSee($t->number);
         $this->post("/trips/{$trip->id}/ship")->assertRedirect();

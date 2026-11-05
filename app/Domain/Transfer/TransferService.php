@@ -195,10 +195,57 @@ final class TransferService
             }
             $set = $this->mover->lock($line->wheel_set_id);
             $this->mover->confirmQty($set, $qty, "Погрузка {$transfer->number}");
-            $line->update(['scanned_out' => true, 'qty_out' => $qty ?? $set->qty]);
+            $line->update(['scanned_out' => true, 'qty_out' => $qty ?? $set->qty, 'wheels_out' => $qty ?? $set->qty]);
 
             return $line->fresh(['wheelSet', 'transfer']);
         });
+    }
+
+    /**
+     * Поштучный скан колеса при погрузке. Бирки на всех колёсах комплекта одинаковые (QR договора),
+     * поэтому каждый скан — одно колесо; комплект погружен, когда набралось колёс по договору.
+     * Лишний скан (колесо отсканировали дважды) не засчитывается.
+     */
+    public function countOut(TransferLine $line): TransferLine
+    {
+        return DB::transaction(function () use ($line) {
+            $transfer = Transfer::whereKey($line->transfer_id)->lockForUpdate()->firstOrFail();
+            if ($transfer->status !== TransferStatus::Created) {
+                throw new DomainError('Перемещение уже отгружено или закрыто');
+            }
+            $line = TransferLine::with('wheelSet')->whereKey($line->id)->lockForUpdate()->firstOrFail();
+            $expected = $line->wheelSet->qty;
+            if ($line->scanned_out || $line->wheels_out >= $expected) {
+                throw new DomainError("Лишний скан: комплект {$line->wheelSet->qr_code} уже погружен полностью ({$line->wheels_out} из {$expected} кол.). "
+                    .'Если колёс действительно больше — укажите фактическое количество кнопкой и отсканируйте бирку.');
+            }
+            $wheels = $line->wheels_out + 1;
+            if ($wheels >= $expected) {
+                return $this->scanOutLine($line);
+            }
+            $line->update(['wheels_out' => $wheels]);
+
+            return $line->fresh(['wheelSet', 'transfer']);
+        });
+    }
+
+    /** Отменить скан одного колеса (или всего комплекта) при погрузке. */
+    public function uncountOut(TransferLine $line, bool $all = false): TransferLine
+    {
+        $line = TransferLine::whereKey($line->id)->lockForUpdate()->firstOrFail();
+        $wheels = $all ? 0 : max(0, $line->wheels_out - 1);
+        $line->update(['scanned_out' => false, 'qty_out' => null, 'wheels_out' => $wheels]);
+
+        return $line;
+    }
+
+    /** Комплекты, погруженные не полностью, отгружаются с фактическим количеством колёс (с расхождением). */
+    public function finalizePartialOut(Transfer $transfer): void
+    {
+        $partial = $transfer->lines()->where('scanned_out', false)->where('wheels_out', '>', 0)->get();
+        foreach ($partial as $line) {
+            $this->scanOutLine($line, $line->wheels_out);
+        }
     }
 
     /** Отгрузка: отсканированные комплекты → В_ПУТИ, неотсканированные исключаются из перемещения. */
@@ -209,6 +256,7 @@ final class TransferService
             if ($transfer->status !== TransferStatus::Created) {
                 throw new DomainError('Перемещение уже отгружено или закрыто');
             }
+            $this->finalizePartialOut($transfer);
             $lines = $transfer->lines()->get();
             $scanned = $lines->where('scanned_out', true);
             if ($scanned->isEmpty()) {
@@ -242,6 +290,29 @@ final class TransferService
         return DB::transaction(fn () => $this->scanInLine($this->findLine($transfer, $code), $qty));
     }
 
+    /** Поштучный скан колеса при приёмке (см. countOut). */
+    public function countIn(TransferLine $line): TransferLine
+    {
+        return DB::transaction(function () use ($line) {
+            $transfer = Transfer::whereKey($line->transfer_id)->lockForUpdate()->firstOrFail();
+            if (! in_array($transfer->status, [TransferStatus::Shipped, TransferStatus::Discrepancy], true)) {
+                throw new DomainError('Перемещение не в пути');
+            }
+            $line = TransferLine::with('wheelSet')->whereKey($line->id)->lockForUpdate()->firstOrFail();
+            $expected = $line->qty_out ?? $line->wheelSet->qty;
+            if ($line->scanned_in || $line->wheels_in >= $expected) {
+                throw new DomainError("Лишний скан: комплект {$line->wheelSet->qr_code} уже принят полностью ({$line->wheels_in} из {$expected} кол.)");
+            }
+            $wheels = $line->wheels_in + 1;
+            if ($wheels >= $expected) {
+                return $this->scanInLine($line, $wheels === $line->wheelSet->qty ? null : $wheels);
+            }
+            $line->update(['wheels_in' => $wheels]);
+
+            return $line->fresh(['wheelSet', 'transfer']);
+        });
+    }
+
     public function scanInLine(TransferLine $line, ?int $qty = null): TransferLine
     {
         return DB::transaction(function () use ($line, $qty) {
@@ -254,7 +325,7 @@ final class TransferService
             }
             $set = $this->mover->lock($line->wheel_set_id);
             $this->mover->confirmQty($set, $qty, "Приёмка {$transfer->number}");
-            $line->update(['scanned_in' => true, 'qty_in' => $qty ?? $set->qty]);
+            $line->update(['scanned_in' => true, 'qty_in' => $qty ?? $set->qty, 'wheels_in' => $qty ?? $set->qty]);
 
             $to = $transfer->to;
             $readyForIssue = $to->isStore() && $set->issue_store_id === $to->id;
@@ -298,7 +369,15 @@ final class TransferService
     public function complete(Transfer $transfer): Transfer
     {
         return DB::transaction(function () use ($transfer) {
+            // Не полностью принятые комплекты принимаются с фактическим количеством колёс
+            $partial = $transfer->lines()->where('scanned_in', false)->where('wheels_in', '>', 0)->get();
+            foreach ($partial as $line) {
+                $this->scanInLine($line, $line->wheels_in);
+            }
             $transfer = Transfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+            if ($transfer->status === TransferStatus::Received && $partial->isNotEmpty()) {
+                return $transfer->fresh('lines.wheelSet');
+            }
             if ($transfer->status !== TransferStatus::Shipped) {
                 throw new DomainError('Перемещение не в пути');
             }
@@ -327,7 +406,7 @@ final class TransferService
         if ($transfer->status !== TransferStatus::Created) {
             throw new DomainError('Отменить можно только неотгруженное перемещение');
         }
-        $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null]);
+        $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null, 'wheels_out' => 0]);
         $transfer->update(['status' => TransferStatus::Cancelled, 'trip_id' => null]);
 
         return $transfer;
