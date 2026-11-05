@@ -142,9 +142,8 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
             </div>
             <div class="card p-5" :class="debt.blocked ? 'border-red-600' : ''">
                 <div class="flex justify-between"><span class="text-ink-500">Сумма за хранение</span><b>{{ money(contract.amount) }}</b></div>
-                <div v-for="s in contract.sets.filter((x) => x.price !== null)" :key="s.id" class="flex justify-between gap-3 mt-1 text-sm">
-                    <span class="text-ink-500">{{ s.qr_code }} · {{ s.tire_size }}</span>
-                    <span class="tabular text-right">{{ money(s.price) }} × {{ s.qty }} кол.{{ contract.months ? ` × ${contract.months} мес.` : '' }}</span>
+                <div v-for="s in contract.sets.filter((x) => x.price !== null)" :key="s.id" class="mt-1 text-sm text-ink-500 tabular">
+                    {{ s.tire_size }}: {{ money(s.price) }} × {{ s.qty }} кол.{{ contract.months ? ` × ${contract.months} мес.` : '' }}
                 </div>
                 <div v-if="!contract.sets.some((x) => x.price !== null)" class="flex justify-between gap-3 mt-1"><span class="text-ink-500">Тариф</span><span class="text-right">{{ contract.tariff?.name || '—' }}</span></div>
                 <div class="flex justify-between mt-1"><span class="text-ink-500">Срок хранения до</span><span class="tabular">{{ d(contract.storage_until) }}</span></div>

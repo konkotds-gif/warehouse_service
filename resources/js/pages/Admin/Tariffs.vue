@@ -44,19 +44,18 @@ const example = computed(() => {
     <div class="card overflow-x-auto">
         <table class="table">
             <thead>
-                <tr><th>Диаметр</th><th>Код 1С</th><th>Наименование</th><th class="text-right">За колесо / мес.</th>
+                <tr><th>Диаметр</th><th>Номенклатура 1С</th><th class="text-right">Колесо / мес.</th>
                     <th v-for="m in months" :key="m" class="text-right whitespace-nowrap">{{ m }} мес.</th><th></th></tr>
             </thead>
             <tbody>
                 <tr v-for="t in prices" :key="t.id" :class="!t.is_active ? 'opacity-50' : ''">
                     <td class="font-semibold whitespace-nowrap">{{ diam(t) }}</td>
-                    <td class="tabular whitespace-nowrap">{{ t.code }}</td>
-                    <td>{{ t.name }}</td>
+                    <td><div class="tabular font-semibold whitespace-nowrap">{{ t.code }}</div><div class="text-xs text-ink-500 whitespace-nowrap">{{ t.name }}</div></td>
                     <td class="tabular text-right font-semibold">{{ money(t.price) }}</td>
                     <td v-for="m in months" :key="m" class="tabular text-right text-ink-500">{{ money(t.price * m) }}</td>
                     <td><button class="btn-ghost !min-h-8" @click="open(t)">Изменить</button></td>
                 </tr>
-                <tr v-if="!prices.length"><td :colspan="5 + months.length" class="text-ink-500">Прайс пуст — добавьте цены по диаметрам</td></tr>
+                <tr v-if="!prices.length"><td :colspan="4 + months.length" class="text-ink-500">Прайс пуст — добавьте цены по диаметрам</td></tr>
             </tbody>
         </table>
     </div>
