@@ -6,7 +6,7 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { d, dt, money, phone, today, can } from '../../lib/format';
 
-const props = defineProps({ contract: Object, debt: Object, pricing: Object, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean });
+const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
 
@@ -34,10 +34,30 @@ function openIssue(s) {
 }
 const submitIssue = () => issue.post(`/sets/${issueSet.value.id}/issue`, { preserveScroll: true, onSuccess: () => (issueSet.value = null) });
 
-// Продление
+// Продление: окно с расчётом → документ пролонгации → печать
 const extend = useForm({ months: 1 });
 const showExtend = ref(false);
-const submitExtend = () => extend.post(`/contracts/${props.contract.id}/extend`, { preserveScroll: true, onSuccess: () => (showExtend.value = false) });
+const extendDone = ref(null); // оформленный документ пролонгации
+function openExtend() {
+    extend.reset();
+    extend.clearErrors();
+    extendDone.value = null;
+    showExtend.value = true;
+}
+// Дата + N месяцев без переполнения (31.01 + 1 мес. = 28/29.02), как на сервере
+function addMonths(iso, n) {
+    const [y, m, day] = iso.split('-').map(Number);
+    const target = new Date(Date.UTC(y, m - 1 + n, 1));
+    const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+    target.setUTCDate(Math.min(day, last));
+    return target.toISOString().slice(0, 10);
+}
+const extendUntil = computed(() => addMonths(props.pricing.extend_from, extend.months));
+const submitExtend = () => extend.post(`/contracts/${props.contract.id}/extend`, {
+    preserveScroll: true,
+    onSuccess: () => (extendDone.value = props.extensions[0] || null),
+});
+const extensionPrintUrl = (e) => `/contracts/${props.contract.id}/extensions/${e.id}/print`;
 
 // Списание
 const dispose = useForm({ reason: '' });
@@ -72,7 +92,7 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
             <button v-if="can('print')" class="btn-primary" @click="doPrint({ receipt: 1 })"><Icon name="printer" :size="18" /> Бирки ({{ totalWheels }}) и квитанция</button>
             <button v-if="can('print')" class="btn-secondary" @click="doPrint({ action: 'zpl' })">ZPL для принтера</button>
             <a v-if="can('print')" :href="`/contracts/${contract.id}/receipt`" target="_blank" class="btn-secondary">Квитанция</a>
-            <button v-if="can('accept') && contract.status !== 'closed'" class="btn-secondary" @click="showExtend = true">Продлить</button>
+            <button v-if="can('accept') && contract.status !== 'closed'" class="btn-secondary" @click="openExtend">Продлить</button>
         </div>
     </div>
 
@@ -114,6 +134,24 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                     <Link v-for="g in otherGarage" :key="g.id" :href="`/accept?garage_set=${g.id}`" class="btn-link">{{ g.title }} · {{ g.tire_size }} →</Link>
                 </div>
             </div>
+
+            <section v-if="extensions.length" class="card p-5">
+                <h2 class="text-lg mb-3">Продления (пролонгации)</h2>
+                <div class="grid gap-3">
+                    <div v-for="e in extensions" :key="e.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line pb-3 last:border-0 last:pb-0">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-semibold"><span class="tabular">{{ e.number }}</span> от {{ d(e.at) }} · +{{ e.months }} мес.</div>
+                            <div class="text-sm tabular">{{ d(e.previous_until) }} → <b>{{ d(e.storage_until) }}</b> · {{ money(e.amount) }}</div>
+                            <div class="text-xs text-ink-500">{{ dt(e.at) }} · {{ e.user || 'система' }} ·
+                                <span v-if="e.onec_doc_guid" class="text-green-700">в 1С: документ {{ e.onec_doc_guid }}</span>
+                                <span v-else-if="e.onec_delivered" class="text-green-700">получено 1С</span>
+                                <span v-else class="text-amber-700">ожидает обработки в 1С</span>
+                            </div>
+                        </div>
+                        <a :href="extensionPrintUrl(e)" target="_blank" class="btn-secondary"><Icon name="printer" :size="16" /> Печать</a>
+                    </div>
+                </div>
+            </section>
 
             <section class="card p-5">
                 <h2 class="text-lg mb-3">История движений</h2>
@@ -203,15 +241,34 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
         </div>
     </Modal>
 
-    <Modal :show="showExtend" title="Продлить хранение" @close="showExtend = false">
-        <label class="label">На сколько месяцев</label>
-        <div class="seg w-full grid" :style="{ gridTemplateColumns: `repeat(${pricing.max_months}, minmax(0, 1fr))` }">
-            <button v-for="m in pricing.max_months" :key="m" type="button" class="tabular" :class="{ on: extend.months === m }" @click="extend.months = m">{{ m }}</button>
-        </div>
-        <div v-if="extend.errors.months || extend.errors.domain" class="error">{{ extend.errors.months || extend.errors.domain }}</div>
-        <p v-if="pricing.extend_month !== null" class="mt-3">Стоимость продления по прайсу: <b class="tabular">{{ money(pricing.extend_month * extend.months) }}</b></p>
-        <p class="mt-2 text-sm text-ink-500">В 1С уйдёт событие contract.extended для начисления.</p>
-        <button class="btn-primary w-full mt-5" :disabled="extend.processing" @click="submitExtend">Продлить</button>
+    <Modal :show="showExtend" :title="extendDone ? 'Пролонгация оформлена' : 'Продлить хранение'" @close="showExtend = false">
+        <template v-if="extendDone">
+            <div class="rounded-[12px] bg-green-500/10 p-4">
+                <div class="text-lg font-bold tabular">{{ extendDone.number }}</div>
+                <div class="mt-1">Хранение продлено на {{ extendDone.months }} мес., до <b class="tabular">{{ d(extendDone.storage_until) }}</b></div>
+                <div class="mt-1">К оплате: <b class="tabular">{{ money(extendDone.amount) }}</b></div>
+            </div>
+            <p class="mt-3 text-sm text-ink-500">Документ отправлен в 1С для начисления. Распечатайте пролонгацию и дайте клиенту подписать.</p>
+            <div class="mt-5 flex gap-2">
+                <a :href="extensionPrintUrl(extendDone)" target="_blank" class="btn-primary flex-1 justify-center"><Icon name="printer" :size="18" /> Печать пролонгации</a>
+                <button class="btn-secondary" @click="showExtend = false">Готово</button>
+            </div>
+        </template>
+        <template v-else>
+            <label class="label">На сколько месяцев</label>
+            <div class="seg w-full grid" :style="{ gridTemplateColumns: `repeat(${pricing.max_months}, minmax(0, 1fr))` }">
+                <button v-for="m in pricing.max_months" :key="m" type="button" class="tabular" :class="{ on: extend.months === m }" @click="extend.months = m">{{ m }}</button>
+            </div>
+            <div v-if="extend.errors.months || extend.errors.domain || extend.errors.sets" class="error">{{ extend.errors.months || extend.errors.domain || extend.errors.sets }}</div>
+            <div class="mt-4 grid gap-1 text-sm">
+                <div class="flex justify-between"><span class="text-ink-500">Срок хранения сейчас до</span><span class="tabular">{{ d(contract.storage_until) }}</span></div>
+                <div class="flex justify-between"><span class="text-ink-500">Продление считается с</span><span class="tabular">{{ d(pricing.extend_from) }}</span></div>
+                <div class="flex justify-between"><span class="text-ink-500">Новая дата окончания</span><b class="tabular">{{ d(extendUntil) }}</b></div>
+                <div v-if="pricing.extend_month !== null" class="flex justify-between"><span class="text-ink-500">Стоимость по прайсу</span><b class="tabular">{{ money(pricing.extend_month * extend.months) }}</b></div>
+            </div>
+            <p class="mt-3 text-sm text-ink-500">Будет оформлен документ пролонгации с печатной формой, он уйдёт в 1С для начисления.</p>
+            <button class="btn-primary w-full mt-5" :disabled="extend.processing" @click="submitExtend">Оформить пролонгацию на {{ extend.months }} мес.</button>
+        </template>
     </Modal>
 
     <Modal :show="!!disposeSet" title="Списать комплект" @close="disposeSet = null">

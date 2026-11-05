@@ -10,6 +10,7 @@ use App\Domain\Storage\SetMover;
 use App\Domain\Support\DomainError;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
+use App\Models\ContractExtension;
 use App\Models\Location;
 use App\Models\Movement;
 use App\Models\StorageContract;
@@ -43,7 +44,7 @@ class ContractController extends Controller
 
     public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing): Response
     {
-        $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments',
+        $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
             'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
         $movements = Movement::with(['user', 'wheelSet'])->whereIn('wheel_set_id', $contract->sets->pluck('id'))
             ->orderByDesc('id')->limit(100)->get();
@@ -65,7 +66,23 @@ class ContractController extends Controller
             'pricing' => Pricing::settings() + [
                 // Продление на 1 месяц по текущему прайсу (для подсказки в окне продления)
                 'extend_month' => $this->extendMonth($contract, $pricing),
+                // С какой даты считается продление: от окончания срока, если он ещё не наступил, иначе с сегодня
+                'extend_from' => ($contract->storage_until && $contract->storage_until->isFuture() ? $contract->storage_until : now())->toDateString(),
             ],
+            'extensions' => $contract->extensions->map(fn (ContractExtension $e) => [
+                'id' => $e->id,
+                'number' => $e->number,
+                'seq' => $e->seq,
+                'at' => $e->extended_at->toIso8601String(),
+                'months' => $e->months,
+                'period_from' => $e->period_from->toDateString(),
+                'previous_until' => $e->previous_until?->toDateString(),
+                'storage_until' => $e->storage_until->toDateString(),
+                'amount' => (float) $e->amount,
+                'user' => $e->author?->name,
+                'onec_doc_guid' => $e->onec_doc_guid,
+                'onec_delivered' => $e->outboxEvent?->delivered_at !== null,
+            ])->all(),
             'movements' => $movements->map(fn ($m) => Present::movement($m))->all(),
             'prints' => $prints->map(fn ($p) => ['copies' => $p->copies, 'reason' => $p->reason, 'format' => $p->format,
                 'at' => $p->printed_at->toIso8601String(), 'user' => $p->user?->name, 'qr_code' => $contract->sets->firstWhere('id', $p->wheel_set_id)?->qr_code])->all(),
@@ -86,9 +103,23 @@ class ContractController extends Controller
 
     public function extend(Request $request, StorageContract $contract, ContractService $service): RedirectResponse
     {
-        $service->extend($contract, $request->validate(['months' => ['required', 'integer', 'min:1', 'max:'.Pricing::settings()['max_months']]])['months'], $request->user());
+        $extension = $service->extend($contract, $request->validate(['months' => ['required', 'integer', 'min:1', 'max:'.Pricing::settings()['max_months']]])['months'], $request->user());
 
-        return back()->with('success', 'Срок хранения продлён, событие отправлено в 1С');
+        return back()->with('success', "Оформлена пролонгация {$extension->number}: хранение до {$extension->storage_until->format('d.m.Y')}, документ отправлен в 1С");
+    }
+
+    /** Печатная форма документа пролонгации (A4, два экземпляра подписей: клиент и исполнитель). */
+    public function extensionPrint(StorageContract $contract, ContractExtension $extension)
+    {
+        abort_unless($extension->contract_id === $contract->id, 404);
+        $contract->load(['client', 'vehicle', 'store']);
+        $extension->load('author');
+
+        return response()->view('print.extension', [
+            'contract' => $contract,
+            'e' => $extension,
+            'tz' => config('app.display_timezone'),
+        ]);
     }
 
     /** Печать бирок из браузера (58×40 мм). Бирок — столько, сколько колёс (или указанное число при перепечатке). */

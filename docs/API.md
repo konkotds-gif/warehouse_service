@@ -41,7 +41,7 @@
 |---|---|---|
 | `client.created` | В магазине заведён новый клиент | Создать контрагента, в ack вернуть `client_onec_guid` |
 | `contract.created` | Принят комплект, создан договор | Создать реализацию услуги хранения, в ack вернуть `onec_doc_guid` |
-| `contract.extended` | Договор продлён | Документ продления |
+| `contract.extended` | Оформлена пролонгация договора (документ ПР00001) | Документ продления (реализация услуги), в ack вернуть `onec_doc_guid` — он привяжется к документу пролонгации |
 | `contract.closed` | Все комплекты выданы | Закрыть договор |
 | `set.issued` | Комплект выдан клиенту | Если `overdue` не пуст — начислить плату за хранение после срока |
 | `set.overdue` | Срок хранения истёк | Начисление/уведомление |
@@ -55,8 +55,11 @@
 Стоимость считается по прайсу диаметров: у каждого комплекта своя строка услуги — `service_code` (код номенклатуры 1С,
 например `ЦБ000335` для R16), `price` (цена за 1 колесо в месяц), `qty` (колёс) и `amount = price × qty × months`.
 Для документа реализации в 1С — одна строка на комплект: номенклатура `service_code`, количество `qty × months`, цена `price`.
-`contract.extended` дополнительно содержит `extended_months`, `extra_amount` и `extension_lines[]{qr_code, service_code,
-service_onec_guid, diameter, qty, months, price, amount}` по текущему прайсу.
+`contract.extended` дополнительно содержит `extended_months`, `extra_amount`, реквизиты документа пролонгации
+`extension{id, number, seq, date, months, period_from, previous_until, storage_until, amount}` (`number` — например `ПР00001`,
+`seq` — какое по счёту продление договора, `storage_until` — новая дата окончания хранения) и
+`extension_lines[]{qr_code, service_code, service_onec_guid, diameter, qty, months, price, amount}` по текущему прайсу.
+GUID документа 1С из ack для `contract.extended` записывается в документ пролонгации, а не в договор.
 
 `set.issued` содержит `overdue{service_code, days, rate, per, amount}` (или `null`): плата за дни после окончания срока
 и бесплатного периода. `per` = `contract` (ставка за договор в день) или `wheel` (за колесо в день). Код услуги и условия
@@ -91,7 +94,7 @@ service_onec_guid, diameter, qty, months, price, amount}` по текущему 
 |---|---|
 | `GET clients/search?phone=&plate=&onec_guid=` | Клиенты с договорами (нужен хотя бы один параметр) |
 | `GET clients/{id или guid}/garage` | Машины клиента, закреплённые комплекты, где лежат |
-| `GET contracts/{номер}` | Договор, комплекты, статусы, адреса, `paid_until`, `debt` |
+| `GET contracts/{номер}` | Договор, комплекты, статусы, адреса, `paid_until`, `debt`, `extensions[]` — пролонгации с `onec_doc_guid` |
 | `GET sets/{qr}` | Комплект по QR бирки, текущий адрес и история движений |
 | `GET stock?location=02&status=placed&limit=1000` | Остатки на хранении |
 

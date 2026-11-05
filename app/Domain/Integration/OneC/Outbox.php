@@ -2,6 +2,7 @@
 
 namespace App\Domain\Integration\OneC;
 
+use App\Models\ContractExtension;
 use App\Models\OutboxEvent;
 use App\Models\StorageContract;
 use App\Models\Transfer;
@@ -57,6 +58,22 @@ final class Outbox
             'amount' => (float) $contract->amount,
             'onec_doc_guid' => $contract->onec_doc_guid,
             'sets' => $contract->sets->map(fn (WheelSet $s) => $this->setPayload($s))->values()->all(),
+        ];
+    }
+
+    /** Реквизиты документа пролонгации для 1С. */
+    public function extensionPayload(ContractExtension $e): array
+    {
+        return [
+            'id' => $e->id,
+            'number' => $e->number,
+            'seq' => $e->seq,
+            'date' => $e->extended_at->toIso8601String(),
+            'months' => $e->months,
+            'period_from' => $e->period_from->toDateString(),
+            'previous_until' => $e->previous_until?->toDateString(),
+            'storage_until' => $e->storage_until->toDateString(),
+            'amount' => (float) $e->amount,
         ];
     }
 

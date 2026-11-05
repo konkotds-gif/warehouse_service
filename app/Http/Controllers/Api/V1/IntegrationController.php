@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Storage\ContractService;
 use App\Http\Api\ApiResponse;
 use App\Models\Client;
+use App\Models\ContractExtension;
 use App\Models\OutboxEvent;
 use App\Models\StorageContract;
 use Illuminate\Http\Request;
@@ -96,6 +97,16 @@ class IntegrationController extends ApiController
     private function applyAck(OutboxEvent $event, ?string $docGuid, ?string $clientGuid): void
     {
         $p = $event->payload;
+        if ($docGuid && $event->event_type === 'contract.extended') {
+            // Документ продления в 1С — к документу пролонгации, а не к договору
+            $extension = ContractExtension::where('outbox_event_id', $event->id)
+                ->orWhere('id', $p['extension']['id'] ?? '')->first();
+            if ($extension) {
+                $extension->update(['onec_doc_guid' => $docGuid]);
+
+                return;
+            }
+        }
         if ($docGuid && in_array($event->event_type, ['contract.created', 'contract.extended'], true) && ! empty($p['contract_number'])) {
             StorageContract::where('number', $p['contract_number'])->whereNull('onec_doc_guid')->update(['onec_doc_guid' => $docGuid]);
         }

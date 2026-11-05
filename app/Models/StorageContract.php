@@ -65,6 +65,11 @@ class StorageContract extends Model
         return $this->hasMany(WheelSet::class, 'contract_id')->orderBy('qr_code');
     }
 
+    public function extensions(): HasMany
+    {
+        return $this->hasMany(ContractExtension::class, 'contract_id')->orderByDesc('seq');
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class, 'contract_id')->latest('paid_at');

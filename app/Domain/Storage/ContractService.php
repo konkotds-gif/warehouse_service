@@ -4,6 +4,8 @@ namespace App\Domain\Storage;
 
 use App\Domain\Integration\OneC\Outbox;
 use App\Domain\Support\DomainError;
+use App\Domain\Support\NumberGenerator;
+use App\Models\ContractExtension;
 use App\Models\Payment;
 use App\Models\StorageContract;
 use App\Models\User;
@@ -15,41 +17,72 @@ use Illuminate\Support\Facades\DB;
  */
 final class ContractService
 {
-    public function __construct(private readonly Outbox $outbox, private readonly Pricing $pricing) {}
+    public function __construct(
+        private readonly Outbox $outbox,
+        private readonly Pricing $pricing,
+        private readonly NumberGenerator $numbers,
+    ) {}
 
-    public function extend(StorageContract $contract, int $months, ?User $user = null): StorageContract
+    /**
+     * Продление хранения: создаётся документ пролонгации (ПР00001) со стоимостью по текущему прайсу,
+     * договор получает новую дату окончания, в 1С уходит contract.extended с реквизитами документа.
+     */
+    public function extend(StorageContract $contract, int $months, ?User $user = null): ContractExtension
     {
         $this->pricing->validateMonths($months);
         if ($contract->status === ContractStatus::Closed) {
             throw new DomainError('Договор закрыт');
         }
 
-        return DB::transaction(function () use ($contract, $months) {
+        return DB::transaction(function () use ($contract, $months, $user) {
             $contract = StorageContract::whereKey($contract->id)->lockForUpdate()->firstOrFail();
-            $base = $contract->storage_until && $contract->storage_until->isFuture() ? $contract->storage_until->copy() : now();
-            $lines = $this->pricing->extensionLines($contract, $months);
+            $previous = $contract->storage_until?->copy();
+            $base = $previous && $previous->isFuture() ? $previous->copy() : now()->startOfDay();
+            $lines = array_map(fn ($l) => [
+                'qr_code' => $l['set']->qr_code,
+                'tire_size' => $l['set']->tire_size,
+                'diameter' => $l['diameter'],
+                'service_code' => $l['tariff']->code,
+                'service_onec_guid' => $l['tariff']->onec_guid,
+                'service_name' => $l['tariff']->name,
+                'qty' => $l['qty'],
+                'months' => $l['months'],
+                'price' => $l['price'],
+                'amount' => $l['amount'],
+            ], $this->pricing->extensionLines($contract, $months));
+            if ($lines === []) {
+                throw new DomainError('В договоре нет комплектов на хранении — продлевать нечего');
+            }
             $extra = round(array_sum(array_column($lines, 'amount')), 2);
+            $until = $base->copy()->addMonthsNoOverflow($months);
+
             $contract->update([
-                'storage_until' => $base->addMonthsNoOverflow($months)->toDateString(),
+                'storage_until' => $until->toDateString(),
                 'months' => (int) $contract->months + $months,
                 'amount' => (float) $contract->amount + $extra,
                 'status' => $contract->status === ContractStatus::Overdue ? ContractStatus::Open : $contract->status,
             ]);
-            $this->outbox->record('contract.extended', $this->outbox->contractPayload($contract) + [
-                'extended_months' => $months, 'extra_amount' => $extra,
-                'extension_lines' => array_map(fn ($l) => [
-                    'qr_code' => $l['set']->qr_code,
-                    'service_code' => $l['tariff']->code,
-                    'service_onec_guid' => $l['tariff']->onec_guid,
-                    'diameter' => $l['diameter'],
-                    'qty' => $l['qty'],
-                    'months' => $l['months'],
-                    'price' => $l['price'],
-                    'amount' => $l['amount'],
-                ], $lines),
+            $extension = ContractExtension::create([
+                'number' => $this->numbers->extensionNumber(),
+                'contract_id' => $contract->id,
+                'seq' => (int) $contract->extensions()->max('seq') + 1,
+                'months' => $months,
+                'period_from' => $base->toDateString(),
+                'previous_until' => $previous?->toDateString(),
+                'storage_until' => $until->toDateString(),
+                'amount' => $extra,
+                'lines' => $lines,
+                'created_by' => $user?->id,
+                'extended_at' => now(),
             ]);
+            $event = $this->outbox->record('contract.extended', $this->outbox->contractPayload($contract) + [
+                'extended_months' => $months, 'extra_amount' => $extra,
+                'extension' => $this->outbox->extensionPayload($extension),
+                'extension_lines' => array_map(fn ($l) => array_diff_key($l, ['tire_size' => 1, 'service_name' => 1]), $lines),
+            ]);
+            $extension->update(['outbox_event_id' => $event->id]);
 
-            return $contract;
+            return $extension;
         });
     }
 
