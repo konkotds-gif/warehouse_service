@@ -9,6 +9,7 @@ import { d, dt, money, phone, today, can } from '../../lib/format';
 const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean, confirmation: Object, closing: Object, autoClose: Boolean });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
+const whereClass = (k) => ({ cell: 'border-green-200 bg-green-50 text-green-900', buffer: 'border-blue-200 bg-blue-50 text-blue-900', transit: 'border-amber-200 bg-amber-50 text-amber-900', lost: 'border-red-200 bg-red-50 text-red-800' })[k] || 'border-line bg-slate-50 text-ink-500';
 
 // Печать: форма POST в новой вкладке
 const printForm = ref(null);
@@ -210,6 +211,13 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <div class="mt-2 text-ink-900">{{ s.qty }} шт · <b>{{ s.tire_size }}</b> · {{ s.with_rims ? 'с дисками' : 'без дисков' }} · {{ s.condition_label }}<template v-if="s.season_label"> · {{ s.season_label }}</template></div>
                 <div v-if="s.brand_model || s.notes" class="text-sm text-ink-500">{{ s.brand_model }} {{ s.notes }}</div>
                 <div v-if="s.damages_labels?.length" class="text-sm text-amber-700">Повреждения: {{ s.damages_labels.join(', ') }}</div>
+                <div v-if="s.whereabouts" class="mt-3 rounded-[10px] border px-3 py-2 text-sm" :class="whereClass(s.whereabouts.kind)">
+                    <div class="text-xs uppercase tracking-wide opacity-70">Где лежит сейчас</div>
+                    <div class="font-semibold">{{ s.whereabouts.place }}</div>
+                    <div v-if="s.whereabouts.detail">{{ s.whereabouts.detail }}</div>
+                    <div v-if="s.whereabouts.kind === 'cell'" class="mt-1 text-xs opacity-70 tabular">Адрес ячейки: {{ s.whereabouts.address }}</div>
+                    <div v-if="s.whereabouts.pending" class="mt-1 text-amber-700">{{ s.whereabouts.pending }}</div>
+                </div>
                 <div v-if="s.issue_store" class="mt-2 text-sm"><Icon name="issue" :size="14" class="inline" /> Выдача в <b>{{ s.issue_store }}</b> на {{ d(s.issue_due_date) }}</div>
                 <div v-if="s.photos?.length" class="mt-3 flex gap-2 overflow-x-auto">
                     <a v-for="p in s.photos" :key="p.id" :href="p.url" target="_blank"><img :src="p.url" class="h-20 w-20 rounded-[10px] object-cover border border-line" /></a>

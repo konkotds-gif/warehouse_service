@@ -9,6 +9,7 @@ use App\Domain\Storage\ContractService;
 use App\Domain\Storage\IssueService;
 use App\Domain\Storage\Pricing;
 use App\Domain\Storage\SetMover;
+use App\Domain\Storage\SetWhereabouts;
 use App\Domain\Support\DomainError;
 use App\Http\Controllers\Controller;
 use App\Http\Presenters\Present;
@@ -47,7 +48,7 @@ class ContractController extends Controller
     public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing, ContractConfirmation $confirmation, ContractClosing $closing): Response
     {
         $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'closedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
-            'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
+            'sets.cell.row', 'sets.cell.location', 'sets.location', 'sets.transfer.from', 'sets.transfer.to', 'sets.transfer.trip', 'sets.issueStore', 'sets.photos']);
         // До истории движений: обновление статуса SMS может добавить в неё запись
         $confirmationStatus = $confirmation->status($contract);
         $closeStatus = $confirmation->status($contract, ContractConfirmation::CLOSE);
@@ -61,12 +62,16 @@ class ContractController extends Controller
             ->whereNotIn('id', $contract->sets->pluck('garage_set_id')->filter())
             ->get()->map(fn ($g) => ['id' => $g->id, 'title' => $g->title, 'tire_size' => $g->tire_size])->all() : [];
 
+        $whereabouts = SetWhereabouts::forSets($contract->sets);
+
         return Inertia::render('Contracts/Show', [
-            'contract' => Present::contract($contract, true) + [
+            // array_merge, а не «+»: Present::contract уже содержит ключ sets, его нужно заменить
+            'contract' => array_merge(Present::contract($contract, true), [
                 'sets' => $contract->sets->map(fn (WheelSet $s) => Present::set($s) + [
+                    'whereabouts' => $whereabouts[$s->id] ?? null,
                     'photos' => $s->photos->map(fn ($p) => ['id' => $p->id, 'url' => route('photos.show', $p)])->all(),
                 ])->all(),
-            ],
+            ]),
             'debt' => $issue->debtCheck($contract),
             'pricing' => Pricing::settings() + [
                 // Продление на 1 месяц по текущему прайсу (для подсказки в окне продления)
