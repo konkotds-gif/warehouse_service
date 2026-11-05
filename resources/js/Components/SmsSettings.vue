@@ -7,6 +7,9 @@ import { ask } from '../lib/confirm';
 const props = defineProps({ sms: Object });
 
 const form = useForm({
+    auth: props.sms.auth,
+    apikey: '',
+    remove_apikey: false,
     login: props.sms.login || '',
     password: '',
     remove_password: false,
@@ -18,7 +21,11 @@ const testPhone = ref('');
 const testing = ref(false);
 
 function save() {
-    form.put('/admin/settings/sms', { preserveScroll: true, onSuccess: () => form.reset('password', 'remove_password') });
+    form.put('/admin/settings/sms', { preserveScroll: true, onSuccess: () => form.reset('password', 'remove_password', 'apikey', 'remove_apikey') });
+}
+async function removeApikey() {
+    if (!(await ask('Если выбрана авторизация по API-ключу, SMS перестанут отправляться.', { title: 'Удалить API-ключ SMSC?', ok: 'Удалить', danger: true }))) return;
+    form.transform((d) => ({ ...d, apikey: '', remove_apikey: true })).put('/admin/settings/sms', { preserveScroll: true, onFinish: () => form.transform((d) => d) });
 }
 async function removePassword() {
     if (!(await ask('SMS клиентам и коды подтверждения договоров перестанут отправляться.', { title: 'Удалить пароль SMSC?', ok: 'Удалить', danger: true }))) return;
@@ -44,18 +51,35 @@ const parts = computed(() => (preview.value.length <= 70 ? 1 : Math.ceil(preview
             <span class="badge" :class="sms.configured ? 'badge-green' : 'badge-gray'">{{ sms.configured ? 'подключено' : 'не подключено' }}</span>
         </div>
 
-        <div class="mt-5 grid gap-4 sm:grid-cols-3">
-            <div><label class="label">Логин SMSC</label>
-                <input v-model="form.login" class="input" autocomplete="off" />
-                <div class="error" v-if="form.errors.login">{{ form.errors.login }}</div></div>
-            <div><label class="label">Пароль SMSC</label>
-                <input v-model="form.password" type="password" autocomplete="new-password" class="input"
-                    :placeholder="sms.password_set ? 'Сохранён — введите новый, чтобы заменить' : 'пароль или API-пароль'" />
+        <div class="mt-5"><label class="label">Авторизация в SMSC</label>
+            <div class="seg">
+                <button type="button" :class="{ on: form.auth === 'password' }" @click="form.auth = 'password'">Логин и пароль</button>
+                <button type="button" :class="{ on: form.auth === 'apikey' }" @click="form.auth = 'apikey'">API-ключ</button>
+            </div>
+            <div class="error" v-if="form.errors.auth">{{ form.errors.auth }}</div></div>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-3">
+            <template v-if="form.auth === 'password'">
+                <div><label class="label">Логин SMSC</label>
+                    <input v-model="form.login" class="input" autocomplete="off" />
+                    <div class="error" v-if="form.errors.login">{{ form.errors.login }}</div></div>
+                <div><label class="label">Пароль SMSC</label>
+                    <input v-model="form.password" type="password" autocomplete="new-password" class="input"
+                        :placeholder="sms.password_set ? 'Сохранён — введите новый, чтобы заменить' : 'пароль от кабинета или API-пароль'" />
+                    <div class="text-xs text-ink-500 mt-1">
+                        <template v-if="sms.from_env">Сейчас используется пароль из .env (SMSC_PASSWORD).</template>
+                        <template v-else>Хранится в базе в зашифрованном виде, в браузер не передаётся.</template>
+                    </div>
+                    <div class="error" v-if="form.errors.password">{{ form.errors.password }}</div></div>
+            </template>
+            <div v-else class="sm:col-span-2"><label class="label">API-ключ SMSC</label>
+                <input v-model="form.apikey" type="password" autocomplete="new-password" class="input"
+                    :placeholder="sms.apikey_set ? `Сохранён: ${sms.apikey_mask} — введите новый, чтобы заменить` : 'создаётся в кабинете SMSC: Настройки → Пароли (smsc.ru/passwords)'" />
                 <div class="text-xs text-ink-500 mt-1">
-                    <template v-if="sms.from_env">Сейчас используется пароль из .env (SMSC_PASSWORD).</template>
-                    <template v-else>Хранится в базе в зашифрованном виде, в браузер не передаётся.</template>
+                    <template v-if="sms.apikey_from_env">Сейчас используется ключ из .env (SMSC_API_KEY).</template>
+                    <template v-else>Ключ передаётся вместо логина и пароля. Хранится в базе в зашифрованном виде, в браузер не передаётся.</template>
                 </div>
-                <div class="error" v-if="form.errors.password">{{ form.errors.password }}</div></div>
+                <div class="error" v-if="form.errors.apikey">{{ form.errors.apikey }}</div></div>
             <div><label class="label">Имя отправителя</label>
                 <input v-model="form.sender" class="input" maxlength="15" placeholder="как зарегистрировано в SMSC" />
                 <div class="text-xs text-ink-500 mt-1">Пусто — отправитель по умолчанию из кабинета SMSC.</div>
@@ -78,7 +102,8 @@ const parts = computed(() => (preview.value.length <= 70 ? 1 : Math.ceil(preview
 
         <div class="mt-4 flex flex-wrap gap-2">
             <button class="btn-primary" :disabled="form.processing" @click="save">Сохранить</button>
-            <button v-if="sms.password_set && !sms.from_env" class="btn-ghost text-red-600 ml-auto" @click="removePassword">Удалить пароль</button>
+            <button v-if="form.auth === 'password' && sms.password_set && !sms.from_env" class="btn-ghost text-red-600 ml-auto" @click="removePassword">Удалить пароль</button>
+            <button v-if="form.auth === 'apikey' && sms.apikey_set && !sms.apikey_from_env" class="btn-ghost text-red-600 ml-auto" @click="removeApikey">Удалить ключ</button>
         </div>
 
         <div class="mt-6 border-t border-line pt-5 grid gap-3 sm:grid-cols-[1fr_auto] items-end">

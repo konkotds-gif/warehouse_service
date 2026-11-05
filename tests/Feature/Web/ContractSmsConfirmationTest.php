@@ -159,15 +159,15 @@ class ContractSmsConfirmationTest extends TestCase
         $this->actingAs($this->user(Role::Admin));
         $this->get('/admin/settings')->assertInertia(fn (Assert $p) => $p->where('sms.configured', false)->where('sms.confirm_contracts', true));
 
-        $this->put('/admin/settings/sms', ['login' => 'diskimira', 'password' => 'p1', 'sender' => 'DiskiMira',
+        $this->put('/admin/settings/sms', ['auth' => 'password', 'login' => 'diskimira', 'password' => 'p1', 'sender' => 'DiskiMira',
             'confirm_contracts' => true, 'confirm_text' => 'Без кода'])->assertSessionHasErrors('confirm_text');
-        $this->put('/admin/settings/sms', ['login' => 'diskimira', 'password' => 'p1', 'sender' => 'DiskiMira',
+        $this->put('/admin/settings/sms', ['auth' => 'password', 'login' => 'diskimira', 'password' => 'p1', 'sender' => 'DiskiMira',
             'confirm_contracts' => true, 'confirm_text' => 'Ваш код {code}'])->assertSessionHasNoErrors();
         $this->assertSame('p1', app(SmscGateway::class)->password());
         $this->assertSame('Ваш код {code}', ContractConfirmation::text());
 
         // Пустой пароль не стирает сохранённый
-        $this->put('/admin/settings/sms', ['login' => 'diskimira', 'password' => '', 'sender' => '', 'confirm_contracts' => true,
+        $this->put('/admin/settings/sms', ['auth' => 'password', 'login' => 'diskimira', 'password' => '', 'sender' => '', 'confirm_contracts' => true,
             'confirm_text' => ContractConfirmation::DEFAULT_TEXT])->assertSessionHasNoErrors();
         $this->assertSame('p1', app(SmscGateway::class)->password());
         $this->assertNull(app(SmscGateway::class)->sender());
@@ -180,6 +180,33 @@ class ContractSmsConfirmationTest extends TestCase
         $this->post('/admin/settings/sms/test')->assertSessionHas('error', fn ($m) => str_contains($m, 'неверный логин'));
 
         $this->actingAs($this->user(Role::Seller))->put('/admin/settings/sms', [])->assertForbidden();
+    }
+
+    public function test_apikey_auth_sends_apikey_instead_of_login_and_password(): void
+    {
+        $this->actingAs($this->user(Role::Admin));
+        // Сохранены и логин/пароль, и ключ — выбор в настройках решает, что уходит в SMSC
+        $this->put('/admin/settings/sms', ['auth' => 'apikey', 'apikey' => 'KEY-12345678', 'login' => 'diskimira', 'password' => 'p1',
+            'sender' => '', 'confirm_contracts' => true, 'confirm_text' => ContractConfirmation::DEFAULT_TEXT])->assertSessionHasNoErrors();
+        $raw = DB::table('settings')->where('key', SmscGateway::API_KEY)->value('value');
+        $this->assertStringNotContainsString('KEY-12345678', $raw);
+        $this->get('/admin/settings')->assertInertia(fn (Assert $p) => $p->where('sms.auth', 'apikey')->where('sms.configured', true)
+            ->where('sms.apikey_set', true)->where('sms.apikey_mask', 'KEY-…5678'));
+
+        Http::fake([self::SEND => Http::response(['id' => 9, 'cnt' => 1])]);
+        $contract = $this->acceptViaForm();
+        Http::assertSent(fn (Request $r) => $r['apikey'] === 'KEY-12345678' && ! isset($r['login']) && ! isset($r['psw'])
+            && str_contains($r['mes'], $contract->number));
+
+        // Переключение обратно на логин/пароль
+        Setting::put(SmscGateway::AUTH, SmscGateway::AUTH_PASSWORD);
+        app(SmscGateway::class)->send('+79123456789', 'тест');
+        Http::assertSent(fn (Request $r) => $r['mes'] === 'тест' && $r['login'] === 'diskimira' && $r['psw'] === 'p1' && ! isset($r['apikey']));
+
+        // Выбран ключ, но ключа нет — SMSC не настроен
+        Setting::put(SmscGateway::AUTH, SmscGateway::AUTH_APIKEY);
+        Setting::putSecret(SmscGateway::API_KEY, null);
+        $this->assertFalse(app(SmscGateway::class)->configured());
     }
 
     private function assertSessionHasNoErrorFlash(): void
