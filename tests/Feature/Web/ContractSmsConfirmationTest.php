@@ -6,7 +6,9 @@ use App\Domain\Notifications\SmscGateway;
 use App\Domain\Storage\ContractConfirmation;
 use App\Domain\Users\Role;
 use App\Models\ContractSmsCode;
+use App\Models\Movement;
 use App\Models\Setting;
+use App\Models\SmsMessage;
 use App\Models\StorageContract;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -207,6 +209,72 @@ class ContractSmsConfirmationTest extends TestCase
         Setting::put(SmscGateway::AUTH, SmscGateway::AUTH_APIKEY);
         Setting::putSecret(SmscGateway::API_KEY, null);
         $this->assertFalse(app(SmscGateway::class)->configured());
+    }
+
+    public function test_sms_sending_delivery_status_and_signing_are_in_movement_history(): void
+    {
+        $this->configureSmsc();
+        Http::fake([
+            self::SEND => Http::response(['id' => 501, 'cnt' => 1]),
+            'https://smsc.ru/sys/status.php' => Http::sequence()
+                ->push(['status' => 0, 'last_date' => '05.11.2026 20:00:00', 'last_timestamp' => now()->timestamp, 'err' => 0])
+                ->push(['status' => 1, 'last_date' => '05.11.2026 20:00:05', 'last_timestamp' => now()->timestamp, 'err' => 0]),
+        ]);
+        $contract = $this->acceptViaForm();
+        $code = $this->lastCode();
+        $set = $contract->sets()->first();
+
+        $sms = SmsMessage::firstOrFail();
+        $this->assertSame('501', $sms->provider_id);
+        $this->assertSame('code', $sms->kind);
+        $this->assertFalse($sms->final);
+        $sent = Movement::where('wheel_set_id', $set->id)->where('action', 'sms_sent')->firstOrFail();
+        $this->assertStringContainsString('+79123456789', $sent->note);
+        $this->assertStringNotContainsString($code, $sent->note); // код в журнал не пишется
+
+        // Передано оператору — не окончательный статус, в историю не пишется
+        $this->artisan('sms:check-status')->assertSuccessful();
+        $this->assertSame(0, $sms->fresh()->status);
+        $this->assertFalse(Movement::where('action', 'sms_delivered')->exists());
+
+        // Доставлено — запись в истории, дальше не опрашиваем
+        $this->travel(1)->minutes();
+        $this->artisan('sms:check-status')->assertSuccessful();
+        $this->assertTrue($sms->fresh()->final);
+        $this->assertStringContainsString('доставлено', Movement::where('action', 'sms_delivered')->firstOrFail()->note);
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), 'status.php') && $r['id'] === '501' && $r['phone'] === '79123456789');
+        $this->travel(1)->minutes();
+        $this->artisan('sms:check-status')->assertSuccessful();
+        Http::assertSentCount(3); // send + 2 status
+
+        $wrong = $code === '0000' ? '1111' : '0000';
+        $this->post("/contracts/{$contract->id}/confirm", ['code' => $wrong]);
+        $this->post("/contracts/{$contract->id}/confirm", ['code' => $code])->assertSessionHasNoErrors();
+        $this->assertTrue(Movement::where('action', 'sms_code_wrong')->exists());
+        $this->assertStringContainsString($contract->number, Movement::where('action', 'contract_signed')->firstOrFail()->note);
+
+        $this->get("/contracts/{$contract->id}")->assertInertia(fn (Assert $p) => $p
+            ->where('movements.0.action', 'contract_signed')
+            ->where('movements.0.action_label', 'Договор подписан кодом из SMS')
+            ->where('confirmation.log.0.delivery', 'доставлено'));
+    }
+
+    public function test_undelivered_status_and_send_error_are_logged(): void
+    {
+        $this->configureSmsc();
+        Http::fake([
+            self::SEND => Http::sequence()->push(['error' => 'no money', 'error_code' => 3])->push(['id' => 77, 'cnt' => 1]),
+            'https://smsc.ru/sys/status.php' => Http::response(['status' => 20, 'last_timestamp' => now()->timestamp, 'err' => 254]),
+        ]);
+        $contract = $this->acceptViaForm();
+        $this->assertStringContainsString('недостаточно средств', Movement::where('action', 'sms_failed')->firstOrFail()->note);
+
+        $this->post("/contracts/{$contract->id}/sms-code")->assertSessionHasNoErrors();
+        // Статус подтягивается и при открытии карточки договора
+        $this->get("/contracts/{$contract->id}")->assertOk();
+        $note = Movement::where('action', 'sms_undelivered')->firstOrFail()->note;
+        $this->assertStringContainsString('невозможно доставить', $note);
+        $this->assertStringContainsString('254', $note);
     }
 
     private function assertSessionHasNoErrorFlash(): void

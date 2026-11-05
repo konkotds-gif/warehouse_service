@@ -81,6 +81,12 @@ function sendCode() {
 }
 const submitConfirm = () => confirmForm.post(`/contracts/${props.contract.id}/confirm`, { preserveScroll: true, onSuccess: () => confirmForm.reset() });
 
+// Цвет точки в истории движений
+const RED = ['qty_mismatch', 'sms_failed', 'sms_undelivered', 'sms_code_wrong'];
+const GREEN = ['sms_delivered', 'contract_signed'];
+const dotClass = (a) => (RED.includes(a) ? 'bg-red-600' : GREEN.includes(a) ? 'bg-green-600' : 'bg-blue-600');
+const lastDelivery = computed(() => props.confirmation?.log.find((l) => !l.error));
+
 // Списание
 const dispose = useForm({ reason: '' });
 const disposeSet = ref(null);
@@ -130,7 +136,8 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
             <div class="flex-1 min-w-[14rem]">
                 <div class="font-bold text-lg">Подтвердите договор кодом из SMS</div>
                 <div class="text-ink-500 text-sm" v-if="!confirmation.phone">У клиента не указан телефон — добавьте его в карточке клиента и отправьте код.</div>
-                <div class="text-ink-500 text-sm" v-else-if="confirmation.last_sent_at">Код отправлен на <b class="tabular">{{ phone(confirmation.phone) }}</b> в {{ dt(confirmation.last_sent_at) }}<template v-if="confirmation.expires_at">, действует до {{ dt(confirmation.expires_at) }}</template>. Попросите клиента назвать код.</div>
+                <div class="text-ink-500 text-sm" v-else-if="confirmation.last_sent_at">Код отправлен на <b class="tabular">{{ phone(confirmation.phone) }}</b> в {{ dt(confirmation.last_sent_at) }}<template v-if="confirmation.expires_at">, действует до {{ dt(confirmation.expires_at) }}</template>. Попросите клиента назвать код.
+                    <div v-if="lastDelivery?.delivery" class="mt-1" :class="lastDelivery.delivered ? 'text-green-700' : 'text-ink-500'">Статус SMS: {{ lastDelivery.delivery }}</div></div>
                 <div class="text-ink-500 text-sm" v-else>Код ещё не отправлен на <b class="tabular">{{ phone(confirmation.phone) }}</b>.</div>
             </div>
         </div>
@@ -200,7 +207,7 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <h2 class="text-lg mb-3">История движений</h2>
                 <ol class="relative border-l-2 border-line ml-2">
                     <li v-for="m in movements" :key="m.id" class="ml-5 pb-4">
-                        <span class="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full" :class="m.action === 'qty_mismatch' ? 'bg-red-600' : 'bg-blue-600'"></span>
+                        <span class="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full" :class="dotClass(m.action)"></span>
                         <div class="flex flex-wrap gap-x-3 items-baseline">
                             <span class="font-semibold">{{ m.action_label }}</span>
                             <span class="text-sm tabular text-ink-500">{{ m.qr_code }}</span>

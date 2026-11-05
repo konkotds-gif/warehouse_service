@@ -118,6 +118,28 @@ class SmscGateway
         return ['ok' => true, 'balance' => (string) ($res['data']['balance'] ?? ''), 'currency' => $res['data']['currency'] ?? null, 'error' => null];
     }
 
+    /**
+     * Статус доставки сообщения (status.php). Коды статусов — App\Models\SmsMessage::STATUSES.
+     *
+     * @return array{ok: bool, status: ?int, err: ?int, at: ?int, error: ?string}
+     */
+    public function status(string $phone, string $id): array
+    {
+        $res = $this->call('status.php', ['phone' => self::phone($phone), 'id' => $id]);
+        if (! $res['ok'] || ! isset($res['data']['status'])) {
+            return ['ok' => false, 'status' => null, 'err' => null, 'at' => null, 'error' => $res['error'] ?? 'SMSC не вернул статус'];
+        }
+        $d = $res['data'];
+
+        return [
+            'ok' => true,
+            'status' => (int) $d['status'],
+            'err' => isset($d['err']) && $d['err'] !== '' ? (int) $d['err'] : null,
+            'at' => isset($d['last_timestamp']) && (int) $d['last_timestamp'] > 0 ? (int) $d['last_timestamp'] : null,
+            'error' => null,
+        ];
+    }
+
     /** Номер для SMSC: 79123456789 (российские 10 цифр дополняются семёркой). */
     public static function phone(string $phone): string
     {
