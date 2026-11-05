@@ -134,6 +134,7 @@ final class TransferService
             foreach ($sets as $set) {
                 $transfer->lines()->create(['wheel_set_id' => $set->id]);
             }
+            $this->syncPickTask($transfer);
 
             return $transfer->fresh('lines.wheelSet');
         });
@@ -151,6 +152,7 @@ final class TransferService
             if (! $transfer->lines()->exists()) {
                 $transfer->update(['status' => TransferStatus::Cancelled, 'trip_id' => null]);
             }
+            $this->syncPickTask($transfer);
 
             return $transfer->fresh('lines.wheelSet');
         });
@@ -289,6 +291,7 @@ final class TransferService
                 'shipped_at' => now(),
                 'driver' => $driver ?? $transfer->driver,
             ]);
+            $this->syncPickTask($transfer);
 
             return $transfer->fresh('lines.wheelSet');
         });
@@ -418,8 +421,106 @@ final class TransferService
         }
         $transfer->lines()->update(['scanned_out' => false, 'qty_out' => null, 'wheels_out' => 0]);
         $transfer->update(['status' => TransferStatus::Cancelled, 'trip_id' => null]);
+        $this->syncPickTask($transfer);
 
         return $transfer;
+    }
+
+    /**
+     * Заказ к выдаче: комплект сам попадает в открытое перемещение «к выдаче» из своей точки в магазин выдачи.
+     * Все заказы в один магазин собираются в одно перемещение, пока оно не отгружено и не включено в ведомость;
+     * перемещение сразу появляется в пуле «Задания → Перевозки». Возвращает null, если комплект уже
+     * включён в другое перемещение (тогда отдельное перемещение не нужно).
+     */
+    public function enqueueForIssue(WheelSet $set, Location $store, ?User $user = null): ?Transfer
+    {
+        return DB::transaction(function () use ($set, $store, $user) {
+            if ($set->current_location_id === null || $set->current_location_id === $store->id) {
+                return null;
+            }
+            if ($this->openLines()->where('wheel_set_id', $set->id)->exists()) {
+                return null;
+            }
+            $transfer = Transfer::query()
+                ->where('status', TransferStatus::Created->value)->whereNull('trip_id')->where('purpose', 'issue')
+                ->where('from_location_id', $set->current_location_id)->where('to_location_id', $store->id)
+                ->orderBy('created_at')->lockForUpdate()->first();
+            if ($transfer) {
+                $this->lockShippable($transfer->from, [$set->id]);
+                $transfer->lines()->create(['wheel_set_id' => $set->id]);
+            } else {
+                $transfer = $this->create($set->location, $store, [$set->id], $user, null, 'issue');
+            }
+            $this->syncPickTask($transfer);
+
+            return $transfer->fresh('lines.wheelSet');
+        });
+    }
+
+    /** Отмена заказа к выдаче: комплект убирается из неотгруженного перемещения «к выдаче». */
+    public function dequeueFromIssue(WheelSet $set): void
+    {
+        $line = TransferLine::query()->where('wheel_set_id', $set->id)
+            ->whereIn('transfer_id', Transfer::query()->select('id')
+                ->where('status', TransferStatus::Created->value)->where('purpose', 'issue'))
+            ->first();
+        if ($line) {
+            $this->removeLine($line->transfer, $line);
+        }
+    }
+
+    /**
+     * Одно задание «Отобрать к выдаче» на перемещение (а не на каждый комплект): кладовщик видит,
+     * сколько комплектов и из каких ячеек собрать для магазина. Задание закрывается при отгрузке,
+     * отменяется вместе с перемещением.
+     */
+    public function syncPickTask(Transfer $transfer): void
+    {
+        if ($transfer->purpose !== 'issue') {
+            return;
+        }
+        $transfer = $transfer->fresh(['to', 'lines.wheelSet.cell', 'lines.wheelSet.contract']);
+        $task = Task::query()->where('type', TaskType::Pick->value)->where('status', TaskStatus::Open->value)
+            ->where('payload->transfer_id', $transfer->id)->first();
+        $lines = $transfer->status === TransferStatus::Created ? $transfer->lines : collect();
+        if ($lines->isEmpty()) {
+            $task?->update([
+                'status' => $transfer->status === TransferStatus::Shipped ? TaskStatus::Done : TaskStatus::Cancelled,
+                'completed_at' => now(),
+            ]);
+
+            return;
+        }
+        $earliest = $lines->map(fn ($l) => $l->wheelSet->issue_due_date)->filter()->sort()->first();
+        $due = $earliest ? $earliest->copy()->subDay() : now()->startOfDay();
+        if ($due->lt(now()->startOfDay())) {
+            $due = now()->startOfDay();
+        }
+        $contracts = $lines->pluck('wheelSet.contract_id')->unique()->count();
+        $data = [
+            'location_id' => $transfer->from_location_id,
+            'due_date' => $due->toDateString(),
+            'title' => sprintf('Отобрать к выдаче в %s: %d компл. по %d дог. — перемещение %s',
+                $transfer->to->code, $lines->count(), $contracts, $transfer->number),
+            'payload' => [
+                'transfer_id' => $transfer->id,
+                'transfer_number' => $transfer->number,
+                'sets' => $lines->sortBy(fn ($l) => $l->wheelSet->currentAddress())->map(fn ($l) => [
+                    'id' => $l->wheelSet->id,
+                    'qr_code' => $l->wheelSet->qr_code,
+                    'address' => $l->wheelSet->currentAddress(),
+                    'contract_id' => $l->wheelSet->contract_id,
+                    'qty' => $l->wheelSet->qty,
+                    'tire_size' => $l->wheelSet->tire_size,
+                    'issue_due_date' => $l->wheelSet->issue_due_date?->toDateString(),
+                ])->values()->all(),
+            ],
+        ];
+        if ($task) {
+            $task->update($data);
+        } else {
+            Task::create($data + ['type' => TaskType::Pick, 'status' => TaskStatus::Open, 'created_by' => $transfer->created_by]);
+        }
     }
 
     /** Ведомость закрывается, когда по всем её перемещениям завершена приёмка. */

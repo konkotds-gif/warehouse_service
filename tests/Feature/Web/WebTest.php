@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Location;
 use App\Models\StorageContract;
 use App\Models\TagPrint;
+use App\Models\Transfer;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -141,7 +142,7 @@ class WebTest extends TestCase
         $seller = $this->user(Role::Seller, $store);
         $this->actingAs($seller)->post("/sets/{$set->id}/order", ['store_id' => $store->id, 'date' => now()->addDay()->toDateString()])
             ->assertSessionHas('success');
-        $t2 = $svc->create($wh, $store, [$set->id]);
+        $t2 = Transfer::where('purpose', 'issue')->where('status', 'created')->sole(); // создано заказом автоматически
         $svc->scanOut($t2, $set->qr_code);
         $svc->ship($t2);
         $svc->scanIn($t2, $set->qr_code);
