@@ -59,6 +59,7 @@ class Movement extends Model
             'sms_undelivered' => 'SMS не доставлено',
             'contract_signed' => 'Договор подписан кодом из SMS',
             'sms_code_wrong' => 'Неверный код из SMS',
+            'contract_closed' => 'Договор закрыт',
         ][$action] ?? $action;
     }
 }

@@ -31,6 +31,9 @@ class SmsSettingsController extends Controller
             'confirm_contracts' => (bool) Setting::get(ContractConfirmation::ENABLED, true),
             'confirm_text' => ContractConfirmation::text(),
             'default_text' => ContractConfirmation::DEFAULT_TEXT,
+            'confirm_close' => (bool) Setting::get(ContractConfirmation::CLOSE_ENABLED, true),
+            'close_text' => ContractConfirmation::closeText(),
+            'default_close_text' => ContractConfirmation::DEFAULT_CLOSE_TEXT,
             'ttl_minutes' => ContractConfirmation::TTL_MINUTES,
             'max_attempts' => ContractConfirmation::MAX_ATTEMPTS,
         ];
@@ -52,6 +55,12 @@ class SmsSettingsController extends Controller
                     $fail('В тексте SMS должен быть {code} — на это место подставится код');
                 }
             }],
+            'confirm_close' => ['sometimes', 'boolean'],
+            'close_text' => ['sometimes', 'required', 'string', 'max:300', function ($attr, $value, $fail) {
+                if (! str_contains($value, '{code}')) {
+                    $fail('В тексте SMS должен быть {code} — на это место подставится код');
+                }
+            }],
         ], ['sender.max' => 'Имя отправителя — до 11 букв или 15 цифр, как зарегистрировано в SMSC']);
 
         Setting::put(SmscGateway::AUTH, $data['auth']);
@@ -69,6 +78,12 @@ class SmsSettingsController extends Controller
         }
         Setting::put(ContractConfirmation::ENABLED, (bool) $data['confirm_contracts']);
         Setting::put(ContractConfirmation::TEXT, trim($data['confirm_text']) === ContractConfirmation::DEFAULT_TEXT ? null : trim($data['confirm_text']));
+        if (array_key_exists('confirm_close', $data)) {
+            Setting::put(ContractConfirmation::CLOSE_ENABLED, (bool) $data['confirm_close']);
+        }
+        if (array_key_exists('close_text', $data)) {
+            Setting::put(ContractConfirmation::CLOSE_TEXT, trim($data['close_text']) === ContractConfirmation::DEFAULT_CLOSE_TEXT ? null : trim($data['close_text']));
+        }
 
         return back()->with('success', 'Настройки SMS сохранены');
     }

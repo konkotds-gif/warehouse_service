@@ -16,6 +16,8 @@ const form = useForm({
     sender: props.sms.sender || '',
     confirm_contracts: props.sms.confirm_contracts,
     confirm_text: props.sms.confirm_text,
+    confirm_close: props.sms.confirm_close,
+    close_text: props.sms.close_text,
 });
 const testPhone = ref('');
 const testing = ref(false);
@@ -37,6 +39,8 @@ function test() {
 }
 // Пример текста с подставленными значениями и длина (кириллица: 70 символов в одном SMS)
 const preview = computed(() => form.confirm_text.replaceAll('{code}', '4821').replaceAll('{number}', '000123'));
+const closePreview = computed(() => form.close_text.replaceAll('{code}', '4821').replaceAll('{number}', '000123').replaceAll('{sum}', ', доплата за хранение 210 руб.'));
+const closeParts = computed(() => (closePreview.value.length <= 70 ? 1 : Math.ceil(closePreview.value.length / 67)));
 const parts = computed(() => (preview.value.length <= 70 ? 1 : Math.ceil(preview.value.length / 67)));
 </script>
 
@@ -98,6 +102,18 @@ const parts = computed(() => (preview.value.length <= 70 ? 1 : Math.ceil(preview
                 <div class="text-xs text-ink-500 mt-1">{code} — код, {number} — номер договора. Пример: «{{ preview }}» · {{ preview.length }} симв., {{ parts }} SMS</div>
                 <div class="error" v-if="form.errors.confirm_text">{{ form.errors.confirm_text }}</div>
                 <button v-if="form.confirm_text !== sms.default_text" type="button" class="btn-link text-sm mt-1" @click="form.confirm_text = sms.default_text">Вернуть текст по умолчанию</button></div>
+
+            <label class="flex items-start gap-3 cursor-pointer mt-5">
+                <input v-model="form.confirm_close" type="checkbox" class="mt-1 h-5 w-5" />
+                <span><span class="font-semibold">Закрывать договор кодом из SMS</span>
+                    <span class="block text-sm text-ink-500">При выдаче последнего комплекта («Закрыть договор») клиент подтверждает закрытие кодом.
+                        В SMS указывается доплата за хранение после срока. Руководитель может закрыть без кода, указав причину.</span></span>
+            </label>
+            <div class="mt-4"><label class="label">Текст SMS для закрытия</label>
+                <input v-model="form.close_text" class="input" maxlength="300" />
+                <div class="text-xs text-ink-500 mt-1">{code} — код, {number} — номер договора, {sum} — «, доплата за хранение N руб.» (пусто, если доплаты нет). Пример: «{{ closePreview }}» · {{ closePreview.length }} симв., {{ closeParts }} SMS</div>
+                <div class="error" v-if="form.errors.close_text">{{ form.errors.close_text }}</div>
+                <button v-if="form.close_text !== sms.default_close_text" type="button" class="btn-link text-sm mt-1" @click="form.close_text = sms.default_close_text">Вернуть текст по умолчанию</button></div>
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2">

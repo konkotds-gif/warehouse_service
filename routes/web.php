@@ -75,6 +75,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/contracts/{contract}', [ContractController::class, 'show'])->middleware('can:search')->name('contracts.show');
     Route::post('/contracts/{contract}/sms-code', [ContractController::class, 'sendCode'])->middleware(['can:accept', 'throttle:10,1'])->name('contracts.sms-code');
     Route::post('/contracts/{contract}/confirm', [ContractController::class, 'confirm'])->middleware(['can:accept', 'throttle:20,1'])->name('contracts.confirm');
+    Route::post('/contracts/{contract}/close-code', [ContractController::class, 'sendCloseCode'])->middleware(['can:issue', 'throttle:10,1'])->name('contracts.close-code');
+    Route::post('/contracts/{contract}/close', [ContractController::class, 'close'])->middleware(['can:issue', 'throttle:20,1'])->name('contracts.close');
     Route::post('/contracts/{contract}/extend', [ContractController::class, 'extend'])->middleware('can:accept')->name('contracts.extend');
     Route::get('/contracts/{contract}/extensions/{extension}/print', [ContractController::class, 'extensionPrint'])->middleware('can:search')->name('contracts.extension.print');
     Route::post('/contracts/{contract}/tags', [ContractController::class, 'tags'])->middleware('can:print')->name('contracts.tags');

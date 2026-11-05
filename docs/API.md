@@ -42,7 +42,7 @@
 | `client.created` | В магазине заведён новый клиент | Создать контрагента, в ack вернуть `client_onec_guid` |
 | `contract.created` | Принят комплект, создан договор | Создать реализацию услуги хранения, в ack вернуть `onec_doc_guid` |
 | `contract.extended` | Оформлена пролонгация договора (документ ПР00001) | Документ продления (реализация услуги), в ack вернуть `onec_doc_guid` — он привяжется к документу пролонгации |
-| `contract.closed` | Все комплекты выданы | Закрыть договор |
+| `contract.closed` | Договор закрыт: выдан последний комплект (с подтверждением клиента кодом из SMS) или все списаны | Закрыть договор |
 | `set.issued` | Комплект выдан клиенту | Если `overdue` не пуст — начислить плату за хранение после срока |
 | `set.overdue` | Срок хранения истёк | Начисление/уведомление |
 | `transfer.completed` | Перемещение принято полностью | Перемещение между складами 1С |
@@ -50,6 +50,9 @@
 Данные договора (`contract.*`): `contract_number`, `contract_id`, `status`, `client_id`, `client_onec_guid`,
 `client_name`, `client_phone`, `vehicle{plate,make,model}`, `store_code`, `store_onec_guid`, `service_code`,
 `service_onec_guid`, `accepted_at`, `storage_until`, `months`, `paid_until`, `amount`, `onec_doc_guid`,
+`overdue_fee`, `overdue_days` (начислено за хранение после срока), `closed_at`, `close_confirmation`
+(`sms` — клиент подтвердил закрытие кодом из SMS, `manual` — закрыл руководитель без кода, `none` — SMS не требовалось,
+`auto` — все комплекты списаны), `close_phone` (номер, на который ушёл код закрытия),
 `sets[]{qr_code, qty, tire_size, with_rims, condition, season, status, address, service_code, service_onec_guid, price, amount}`.
 
 Стоимость считается по прайсу диаметров: у каждого комплекта своя строка услуги — `service_code` (код номенклатуры 1С,
