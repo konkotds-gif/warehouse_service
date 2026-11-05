@@ -57,6 +57,11 @@ final class Outbox
             'paid_until' => $contract->paid_until?->toDateString(),
             'amount' => (float) $contract->amount,
             'onec_doc_guid' => $contract->onec_doc_guid,
+            'overdue_fee' => (float) $contract->overdue_fee,
+            'overdue_days' => (int) $contract->overdue_days,
+            'closed_at' => $contract->closed_at?->toIso8601String(),
+            'close_confirmation' => $contract->close_confirmation,
+            'close_phone' => $contract->close_phone,
             'sets' => $contract->sets->map(fn (WheelSet $s) => $this->setPayload($s))->values()->all(),
         ];
     }

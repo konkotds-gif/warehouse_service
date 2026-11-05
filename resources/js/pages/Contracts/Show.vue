@@ -6,7 +6,7 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import { d, dt, money, phone, today, can } from '../../lib/format';
 
-const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean, confirmation: Object });
+const props = defineProps({ contract: Object, debt: Object, pricing: Object, extensions: { type: Array, default: () => [] }, movements: Array, prints: Array, stores: Array, otherGarage: Array, autoPrint: Boolean, confirmation: Object, closing: Object, autoClose: Boolean });
 const user = computed(() => usePage().props.auth.user);
 const statusBadge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
 
@@ -28,6 +28,8 @@ const submitOrder = () => order.post(`/sets/${orderSet.value.id}/order`, { prese
 const issue = useForm({ code: '', qty: null });
 const issueSet = ref(null);
 function openIssue(s) {
+    // Последний комплект при закрытии по SMS выдаётся через «Закрыть договор»
+    if (closeViaSms.value && props.contract.sets.filter((x) => activeStatuses.includes(x.status)).length === 1) return openClose();
     issueSet.value = s;
     issue.reset();
     issue.qty = s.qty;
@@ -83,9 +85,53 @@ const submitConfirm = () => confirmForm.post(`/contracts/${props.contract.id}/co
 
 // Цвет точки в истории движений
 const RED = ['qty_mismatch', 'sms_failed', 'sms_undelivered', 'sms_code_wrong'];
-const GREEN = ['sms_delivered', 'contract_signed'];
+const GREEN = ['sms_delivered', 'contract_signed', 'contract_closed'];
 const dotClass = (a) => (RED.includes(a) ? 'bg-red-600' : GREEN.includes(a) ? 'bg-green-600' : 'bg-blue-600');
 const lastDelivery = computed(() => props.confirmation?.log.find((l) => !l.error));
+
+// Закрытие договора: выдача оставшихся комплектов + код из SMS + доплата за просрочку
+const activeStatuses = ['accepted', 'in_transit', 'received', 'placed', 'ordered', 'ready', 'lost'];
+const closeViaSms = computed(() => props.closing?.requires_code);
+const closeForm = useForm({ code: '', tag: '', paid: false, reason: '' });
+const showClose = ref(false);
+const closeOverride = ref(false);
+const closeSending = ref(false);
+const closeResendIn = ref(props.closing?.sms?.resend_in || 0);
+let closeTimer = null;
+function tickCloseResend(sec) {
+    closeResendIn.value = sec;
+    clearInterval(closeTimer);
+    closeTimer = setInterval(() => (closeResendIn.value > 0 ? closeResendIn.value-- : clearInterval(closeTimer)), 1000);
+}
+if (closeResendIn.value > 0) tickCloseResend(closeResendIn.value);
+function openClose() {
+    closeForm.reset();
+    closeForm.clearErrors();
+    closeOverride.value = false;
+    showClose.value = true;
+}
+function sendCloseCode() {
+    closeSending.value = true;
+    router.post(`/contracts/${props.contract.id}/close-code`, {}, {
+        preserveScroll: true,
+        onSuccess: () => tickCloseResend(props.closing.sms.resend_in),
+        onFinish: () => (closeSending.value = false),
+    });
+}
+const closeCodeSent = computed(() => !!props.closing?.sms?.expires_at);
+const canSubmitClose = computed(() => {
+    const c = props.closing;
+    if (!c?.can_close || closeForm.processing) return false;
+    if (c.to_issue.length && !closeForm.tag) return false;
+    if (c.due > 0 && !closeForm.paid) return false;
+    if (!c.requires_code) return true;
+    return closeOverride.value ? closeForm.reason.trim().length >= 5 : closeForm.code.length >= props.confirmation.code_length;
+});
+const submitClose = () => closeForm
+    .transform((d) => ({ ...d, code: closeOverride.value ? '' : d.code, reason: closeOverride.value ? d.reason : '' }))
+    .post(`/contracts/${props.contract.id}/close`, { preserveScroll: true, onSuccess: () => (showClose.value = false) });
+const closeError = computed(() => closeForm.errors.code || closeForm.errors.tag || closeForm.errors.paid || closeForm.errors.reason || closeForm.errors.domain);
+if (props.autoClose && props.closing && !props.closing.closed) setTimeout(openClose);
 
 // Списание
 const dispose = useForm({ reason: '' });
@@ -121,6 +167,7 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
             <button v-if="can('print')" class="btn-secondary" @click="doPrint({ action: 'zpl' })">ZPL для принтера</button>
             <a v-if="can('print')" :href="`/contracts/${contract.id}/receipt`" target="_blank" class="btn-secondary">Квитанция</a>
             <button v-if="can('accept') && contract.status !== 'closed'" class="btn-secondary" @click="openExtend">Продлить</button>
+            <button v-if="can('issue') && contract.status !== 'closed'" class="btn-secondary" @click="openClose"><Icon name="check" :size="18" /> Закрыть договор</button>
         </div>
     </div>
 
@@ -231,6 +278,8 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
                 <div v-if="confirmation?.confirmed_at" class="mt-3 text-sm text-green-700 flex gap-2"><Icon name="check" :size="16" class="flex-none mt-0.5" />
                     <span>Подтверждён кодом из SMS {{ dt(confirmation.confirmed_at) }} · <span class="tabular">{{ phone(confirmation.confirmed_phone) }}</span><template v-if="confirmation.confirmed_by"> · {{ confirmation.confirmed_by }}</template></span></div>
                 <div v-else-if="confirmation?.log.length" class="mt-3 text-sm text-amber-700">Не подтверждён кодом из SMS</div>
+                <div v-if="closing?.closed_at" class="mt-3 text-sm flex gap-2" :class="closing.close_confirmation === 'sms' ? 'text-green-700' : 'text-ink-500'"><Icon name="check" :size="16" class="flex-none mt-0.5" />
+                    <span>Закрыт {{ dt(closing.closed_at) }}<template v-if="closing.closed_by"> · {{ closing.closed_by }}</template><template v-if="closing.confirmation_label"> · {{ closing.confirmation_label }}</template><template v-if="closing.close_phone"> · <span class="tabular">{{ phone(closing.close_phone) }}</span></template><template v-if="closing.close_note"> · {{ closing.close_note }}</template></span></div>
             </div>
             <div class="card p-5" :class="debt.blocked ? 'border-red-600' : ''">
                 <div class="flex justify-between"><span class="text-ink-500">Сумма за хранение</span><b>{{ money(contract.amount) }}</b></div>
@@ -322,6 +371,60 @@ const totalWheels = computed(() => props.contract.sets.reduce((a, s) => a + s.qt
             </div>
             <p class="mt-3 text-sm text-ink-500">Будет оформлен документ пролонгации с печатной формой, он уйдёт в 1С для начисления.</p>
             <button class="btn-primary w-full mt-5" :disabled="extend.processing" @click="submitExtend">Оформить пролонгацию на {{ extend.months }} мес.</button>
+        </template>
+    </Modal>
+
+    <Modal :show="showClose" title="Закрыть договор" @close="showClose = false">
+        <template v-if="closing">
+            <div v-if="closing.blockers.length" class="rounded-[12px] bg-red-50 p-3 text-sm text-red-600 grid gap-1">
+                <div class="font-semibold">Закрыть пока нельзя</div>
+                <div v-for="b in closing.blockers" :key="b">{{ b }}</div>
+            </div>
+            <template v-else>
+                <div class="rounded-[12px] border border-line p-3 text-sm grid gap-1">
+                    <div class="flex justify-between gap-3"><span class="text-ink-500">Срок хранения до</span><span class="tabular">{{ d(closing.overdue.ends_at) || '—' }}</span></div>
+                    <div v-if="closing.overdue.free_until" class="flex justify-between gap-3"><span class="text-ink-500">Бесплатно забрать до</span><span class="tabular">{{ d(closing.overdue.free_until) }}</span></div>
+                    <div class="flex justify-between gap-3"><span class="text-ink-500">Хранение после срока</span>
+                        <b class="tabular" :class="closing.due > 0 ? 'text-red-600' : 'text-green-700'">{{ closing.overdue.days ? `${closing.overdue.days} дн. × ${money(closing.overdue.rate)}${closing.overdue.per === 'wheel' ? ` × ${closing.overdue.wheels} кол.` : ''}` : 'нет' }}</b></div>
+                    <div v-if="closing.overdue.charged > 0" class="flex justify-between gap-3"><span class="text-ink-500">Уже начислено</span><span class="tabular">{{ money(closing.overdue.charged) }}</span></div>
+                    <div class="flex justify-between gap-3 text-base mt-1"><span class="font-semibold">К оплате при закрытии</span><b class="tabular" :class="closing.due > 0 ? 'text-red-600' : ''">{{ money(closing.due) }}</b></div>
+                </div>
+                <label v-if="closing.due > 0" class="mt-3 flex items-start gap-3 cursor-pointer rounded-[12px] bg-amber-500/10 p-3 text-amber-700">
+                    <input v-model="closeForm.paid" type="checkbox" class="mt-1 h-5 w-5" />
+                    <span>Клиент оплатил <b>{{ money(closing.due) }}</b> за хранение после срока в кассе (1С)</span>
+                </label>
+
+                <template v-if="closing.to_issue.length">
+                    <div class="mt-4 text-sm">Выдаём: <b class="tabular">{{ closing.to_issue.map((s) => `${s.qr_code} (${s.qty} шт)`).join(', ') }}</b><template v-if="closing.issued"> · выдано раньше: {{ closing.issued }}</template></div>
+                    <label class="label mt-2">Отсканируйте QR на бирке колеса</label>
+                    <input v-model="closeForm.tag" class="input input-lg tabular" placeholder="QR бирки" />
+                </template>
+                <div v-else class="mt-4 text-sm text-ink-500">Все комплекты уже выданы — осталось закрыть договор.</div>
+
+                <template v-if="closing.requires_code && !closeOverride">
+                    <div class="mt-4 text-sm">Клиент подтверждает закрытие кодом из SMS на <b class="tabular">{{ phone(closing.phone) }}</b>.
+                        <template v-if="closeCodeSent"> Код отправлен {{ dt(closing.sms.last_sent_at) }}, действует до {{ dt(closing.sms.expires_at) }}.</template>
+                        <span v-if="closing.sms.log[0]?.delivery" :class="closing.sms.log[0].delivered ? 'text-green-700' : 'text-ink-500'"> Статус SMS: {{ closing.sms.log[0].delivery }}.</span></div>
+                    <div class="mt-2 flex flex-wrap gap-2 items-start">
+                        <input v-model="closeForm.code" class="input input-lg tabular w-40 text-center tracking-[0.4em]" inputmode="numeric" autocomplete="one-time-code"
+                            :maxlength="confirmation.code_length" :placeholder="'•'.repeat(confirmation.code_length)" @keyup.enter="canSubmitClose && submitClose()" />
+                        <button class="btn-secondary btn-lg" :disabled="closeSending || closeResendIn > 0" @click="sendCloseCode">
+                            {{ closeSending ? 'Отправляем…' : closeResendIn > 0 ? `Снова через ${closeResendIn} с` : closeCodeSent ? 'Отправить код повторно' : 'Отправить код' }}</button>
+                    </div>
+                    <div v-if="closing.sms.log.some((l) => l.error)" class="mt-2 text-sm text-red-600">Последняя ошибка отправки: {{ closing.sms.log.find((l) => l.error).error }}</div>
+                    <button v-if="closing.can_override" type="button" class="btn-link text-sm mt-2" @click="closeOverride = true">SMS не доходит — закрыть без кода</button>
+                </template>
+                <template v-else-if="closing.requires_code">
+                    <label class="label mt-4">Причина закрытия без кода из SMS</label>
+                    <input v-model="closeForm.reason" class="input" maxlength="200" placeholder="например: SMS не доходит, клиент расписался на квитанции" />
+                    <button type="button" class="btn-link text-sm mt-1" @click="closeOverride = false">← закрыть по коду из SMS</button>
+                </template>
+                <div v-else class="mt-4 text-sm text-ink-500">{{ closing.sms_enabled ? 'У клиента не указан телефон — договор закрывается без кода из SMS.' : 'Закрытие по SMS выключено в настройках.' }}</div>
+
+                <div v-if="closeError" class="error">{{ closeError }}</div>
+                <button class="btn-primary btn-lg w-full mt-5" :disabled="!canSubmitClose" @click="submitClose">
+                    {{ closing.to_issue.length ? 'Выдать и закрыть договор →' : 'Закрыть договор →' }}</button>
+            </template>
         </template>
     </Modal>
 

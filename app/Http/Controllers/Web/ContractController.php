@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Domain\Labels\TagRenderer;
+use App\Domain\Storage\ContractClosing;
 use App\Domain\Storage\ContractConfirmation;
 use App\Domain\Storage\ContractService;
 use App\Domain\Storage\IssueService;
@@ -43,12 +44,13 @@ class ContractController extends Controller
         ]);
     }
 
-    public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing, ContractConfirmation $confirmation): Response
+    public function show(Request $request, StorageContract $contract, IssueService $issue, Pricing $pricing, ContractConfirmation $confirmation, ContractClosing $closing): Response
     {
-        $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
+        $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'closedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
             'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
         // До истории движений: обновление статуса SMS может добавить в неё запись
         $confirmationStatus = $confirmation->status($contract);
+        $closeStatus = $confirmation->status($contract, ContractConfirmation::CLOSE);
         $movements = Movement::with(['user', 'wheelSet'])->whereIn('wheel_set_id', $contract->sets->pluck('id'))
             ->orderByDesc('id')->limit(100)->get();
         $prints = TagPrint::with('user')->whereIn('wheel_set_id', $contract->sets->pluck('id'))->orderByDesc('id')->get();
@@ -93,7 +95,43 @@ class ContractController extends Controller
             'otherGarage' => $otherGarage,
             'autoPrint' => $request->boolean('print'),
             'confirmation' => $confirmationStatus,
+            // Закрытие договора: расчёт доплаты, что мешает закрыть, код из SMS
+            'closing' => $closing->quote($contract, $request->user()) + [
+                'sms' => $closeStatus,
+                'closed_at' => $contract->closed_at?->toIso8601String(),
+                'closed_by' => $contract->closedBy?->name,
+                'close_confirmation' => $contract->close_confirmation,
+                'confirmation_label' => ContractClosing::confirmationLabel($contract->close_confirmation),
+                'close_phone' => $contract->close_phone,
+                'close_note' => $contract->close_note,
+            ],
+            'autoClose' => $request->boolean('close'),
         ]);
+    }
+
+    /** Отправить клиенту код закрытия договора. */
+    public function sendCloseCode(Request $request, StorageContract $contract, ContractClosing $closing): RedirectResponse
+    {
+        $code = $closing->sendCode($contract, $request->user());
+
+        return $code->isDelivered()
+            ? back()->with('success', 'Код закрытия договора отправлен на '.$code->phone)
+            : back()->withErrors(['code' => 'Код не отправлен: '.$code->error])->with('error', 'Код не отправлен: '.$code->error);
+    }
+
+    /** Закрыть договор: код из SMS (или причина без кода), скан бирки, отметка об оплате просрочки. */
+    public function close(Request $request, StorageContract $contract, ContractClosing $closing): RedirectResponse
+    {
+        $data = $request->validate([
+            'code' => ['nullable', 'string', 'max:12'],
+            'tag' => ['nullable', 'string', 'max:64'],
+            'paid' => ['nullable', 'boolean'],
+            'reason' => ['nullable', 'string', 'max:200'],
+        ]);
+        $contract = $closing->close($contract, $data + ['paid' => $request->boolean('paid')], $request->user());
+
+        return back()->with('success', "Договор {$contract->number} закрыт"
+            .((float) $contract->overdue_fee > 0 ? ', плата за хранение после срока — '.number_format((float) $contract->overdue_fee, 2, ',', ' ').' ₽' : ''));
     }
 
     /** Отправить клиенту код подтверждения договора (повторно). */

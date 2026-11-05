@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Storage\ContractConfirmation;
 use App\Domain\Storage\IssueService;
 use App\Domain\Storage\ScanResolver;
 use App\Domain\Storage\SetStatus;
@@ -29,7 +30,7 @@ class ScanController extends Controller
     }
 
     /** Что за комплект по QR + куда положить. */
-    public function lookup(Request $request, ScanResolver $resolver, PlacementService $placement, IssueService $issue): JsonResponse
+    public function lookup(Request $request, ScanResolver $resolver, PlacementService $placement, IssueService $issue, ContractConfirmation $confirmation): JsonResponse
     {
         $code = (string) $request->query('code');
         $sets = $resolver->sets($code)->load(['contract.client', 'contract.vehicle', 'cell', 'location', 'transfer', 'issueStore']);
@@ -42,6 +43,11 @@ class ScanController extends Controller
             'contract' => ['id' => $contract->id, 'number' => $contract->number, 'client' => $contract->client?->full_name,
                 'phone' => $contract->client?->phone, 'vehicle' => $contract->vehicle?->title(), 'status_label' => $contract->status->label()],
             'debt' => $issue->debtCheck($contract),
+            // Последний комплект при закрытии по SMS выдаётся через «Закрыть договор» в карточке
+            'closing' => [
+                'requires_code' => $confirmation->requiresCloseCode($contract),
+                'active' => $contract->sets()->whereIn('status', SetStatus::activeValues())->count(),
+            ],
             'sets' => $sets->map(fn (WheelSet $s) => Present::set($s) + [
                 'suggested' => in_array($s->status, [SetStatus::Received, SetStatus::Placed, SetStatus::Lost], true) ? $placement->suggest($s)?->address : null,
             ])->values(),

@@ -117,7 +117,7 @@ class LifecycleTest extends TestCase
 
         $actions = Movement::where('wheel_set_id', $set->id)->orderBy('id')->pluck('action')->all();
         // SMS «готовы к выдаче» тоже пишется в историю движений
-        $this->assertSame(['accept', 'ship', 'receive', 'place', 'order', 'ship', 'ready', 'sms_sent', 'issue'], $actions);
+        $this->assertSame(['accept', 'ship', 'receive', 'place', 'order', 'ship', 'ready', 'sms_sent', 'issue', 'contract_closed'], $actions);
     }
 
     public function test_cell_capacity_and_other_warehouse_are_enforced(): void

@@ -14,12 +14,25 @@ use App\Models\WheelSet;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Подтверждение договора хранения кодом из SMS: при оформлении договора клиенту уходит код,
- * сотрудник вводит его в карточке договора. Код живёт 10 минут, 5 попыток ввода, повтор отправки — не чаще раза в минуту.
+ * Коды из SMS по договору хранения: подписание (при оформлении договора) и закрытие (при выдаче последнего комплекта,
+ * см. ContractClosing). Сотрудник вводит код, который назвал клиент. Код живёт 10 минут, 5 попыток ввода,
+ * повтор отправки — не чаще раза в минуту. Коды подписания и закрытия считаются раздельно (purpose).
  */
 final class ContractConfirmation
 {
     public const ENABLED = 'sms.confirm_contracts';
+
+    /** Назначение кода: подписание договора */
+    public const SIGN = 'sign';
+
+    /** Назначение кода: закрытие договора */
+    public const CLOSE = 'close';
+
+    public const CLOSE_ENABLED = 'sms.confirm_close';
+
+    public const CLOSE_TEXT = 'sms.close_text';
+
+    public const DEFAULT_CLOSE_TEXT = 'Код {code} - закрытие договора хранения № {number}{sum}. Диски Мира';
 
     public const TEXT = 'sms.confirm_text';
 
@@ -43,9 +56,26 @@ final class ContractConfirmation
         return (bool) Setting::get(self::ENABLED, true) && $this->smsc->configured();
     }
 
+    /** Закрытие договора кодом из SMS включено и SMSC подключён. */
+    public function closeEnabled(): bool
+    {
+        return (bool) Setting::get(self::CLOSE_ENABLED, true) && $this->smsc->configured();
+    }
+
+    /** Закрыть договор можно только по коду из SMS: закрытие по SMS включено и у клиента есть телефон. */
+    public function requiresCloseCode(StorageContract $contract): bool
+    {
+        return $this->closeEnabled() && filled($contract->client?->phone);
+    }
+
     public static function text(): string
     {
         return Setting::get(self::TEXT) ?: self::DEFAULT_TEXT;
+    }
+
+    public static function closeText(): string
+    {
+        return Setting::get(self::CLOSE_TEXT) ?: self::DEFAULT_CLOSE_TEXT;
     }
 
     /**
@@ -73,34 +103,49 @@ final class ContractConfirmation
             : ['sent' => false, 'message' => 'Код не отправлен: '.$code->error];
     }
 
-    /** Отправить (или повторно отправить) код. Неудачная отправка тоже пишется в журнал с текстом ошибки. */
-    public function send(StorageContract $contract, ?User $user = null): ContractSmsCode
+    /**
+     * Отправить (или повторно отправить) код. Неудачная отправка тоже пишется в журнал с текстом ошибки.
+     *
+     * @param  array<string, string>  $vars  дополнительные подстановки в текст (для закрытия — {sum})
+     */
+    public function send(StorageContract $contract, ?User $user = null, string $purpose = self::SIGN, array $vars = []): ContractSmsCode
     {
-        if (! $this->enabled()) {
-            throw new DomainError('Подтверждение по SMS выключено или SMSC не настроен');
-        }
-        if ($contract->sms_confirmed_at) {
-            throw new DomainError('Договор уже подтверждён');
+        if ($purpose === self::CLOSE) {
+            if (! $this->closeEnabled()) {
+                throw new DomainError('Закрытие договора по SMS выключено или SMSC не настроен');
+            }
+            if ($contract->status === ContractStatus::Closed) {
+                throw new DomainError('Договор уже закрыт');
+            }
+        } else {
+            if (! $this->enabled()) {
+                throw new DomainError('Подтверждение по SMS выключено или SMSC не настроен');
+            }
+            if ($contract->sms_confirmed_at) {
+                throw new DomainError('Договор уже подтверждён');
+            }
         }
         $phone = $contract->client?->phone;
         if (! $phone) {
             throw DomainError::invalid('У клиента не указан телефон', 'code');
         }
-        $last = $contract->smsCodes()->whereNull('error')->first();
+        $last = $contract->smsCodes()->where('purpose', $purpose)->whereNull('error')->first();
         if ($last && $last->created_at->diffInSeconds(now()) < self::RESEND_SECONDS) {
             $wait = self::RESEND_SECONDS - (int) $last->created_at->diffInSeconds(now());
             throw new DomainError("Повторно отправить код можно через {$wait} сек.", 429);
         }
-        $today = $contract->smsCodes()->whereNull('error')->where('created_at', '>=', now()->subDay())->count();
+        $today = $contract->smsCodes()->where('purpose', $purpose)->whereNull('error')->where('created_at', '>=', now()->subDay())->count();
         if ($today >= self::MAX_SENDS_PER_DAY) {
             throw new DomainError('Превышен лимит отправки кодов по договору ('.self::MAX_SENDS_PER_DAY.' за сутки)', 429);
         }
 
         $plain = str_pad((string) random_int(0, 10 ** self::CODE_LENGTH - 1), self::CODE_LENGTH, '0', STR_PAD_LEFT);
-        $text = strtr(self::text(), ['{code}' => $plain, '{number}' => $contract->number]);
+        $template = $purpose === self::CLOSE ? self::closeText() : self::text();
+        $text = strtr($template, ['{code}' => $plain, '{number}' => $contract->number] + $vars + ['{sum}' => '']);
         $result = $this->sms->send($phone, $text, self::mainSet($contract), 'code');
 
         return $contract->smsCodes()->create([
+            'purpose' => $purpose,
             'sms_message_id' => $result['message']?->id,
             'phone' => $phone,
             'code_hash' => self::hash($contract, $plain),
@@ -114,37 +159,16 @@ final class ContractConfirmation
     /** Проверить введённый код и отметить договор подтверждённым. */
     public function verify(StorageContract $contract, string $code, ?User $user = null): StorageContract
     {
-        $code = preg_replace('/\D+/', '', $code) ?? '';
-
         // Счётчик неверных попыток должен сохраниться, поэтому ошибку бросаем уже после транзакции
         $result = DB::transaction(function () use ($contract, $code, $user) {
             $contract = StorageContract::whereKey($contract->id)->lockForUpdate()->firstOrFail();
             if ($contract->sms_confirmed_at) {
                 return $contract;
             }
-            /** @var ContractSmsCode|null $sent */
-            $sent = $contract->smsCodes()->whereNull('error')->whereNull('used_at')->lockForUpdate()->first();
-            if (! $sent) {
-                return 'Код ещё не отправлялся — нажмите «Отправить код»';
+            $sent = $this->consume($contract, $code, self::SIGN);
+            if (is_string($sent)) {
+                return $sent;
             }
-            if ($sent->expires_at->isPast()) {
-                return 'Срок действия кода истёк — отправьте новый';
-            }
-            if ($sent->attempts >= self::MAX_ATTEMPTS) {
-                return 'Исчерпаны попытки ввода — отправьте новый код';
-            }
-            $sent->attempts++;
-            if ($code === '' || ! hash_equals($sent->code_hash, self::hash($contract, $code))) {
-                $sent->save();
-                $left = self::MAX_ATTEMPTS - $sent->attempts;
-                if ($set = self::mainSet($contract)) {
-                    Sms::logMovement($set, 'sms_code_wrong', "Введён неверный код, попытка {$sent->attempts} из ".self::MAX_ATTEMPTS);
-                }
-
-                return $left > 0 ? "Неверный код. Осталось попыток: {$left}" : 'Неверный код. Попытки исчерпаны — отправьте новый код';
-            }
-            $sent->used_at = now();
-            $sent->save();
             $contract->forceFill([
                 'sms_confirmed_at' => now(),
                 'sms_confirmed_phone' => $sent->phone,
@@ -163,10 +187,47 @@ final class ContractConfirmation
         return $result;
     }
 
-    /** Состояние подтверждения для карточки договора. */
-    public function status(StorageContract $contract): array
+    /**
+     * Проверить код и погасить его. Вызывать внутри транзакции с заблокированным договором.
+     * Неверная попытка сохраняется сразу — вызывающий должен вернуть строку ошибки из транзакции, а не бросать исключение.
+     *
+     * @return ContractSmsCode|string погашенный код или текст ошибки
+     */
+    public function consume(StorageContract $contract, string $code, string $purpose): ContractSmsCode|string
     {
-        $codes = $contract->smsCodes()->with(['sender', 'smsMessage'])->limit(10)->get();
+        $code = preg_replace('/\D+/', '', $code) ?? '';
+        /** @var ContractSmsCode|null $sent */
+        $sent = $contract->smsCodes()->where('purpose', $purpose)->whereNull('error')->whereNull('used_at')->lockForUpdate()->first();
+        if (! $sent) {
+            return 'Код ещё не отправлялся — нажмите «Отправить код»';
+        }
+        if ($sent->expires_at->isPast()) {
+            return 'Срок действия кода истёк — отправьте новый';
+        }
+        if ($sent->attempts >= self::MAX_ATTEMPTS) {
+            return 'Исчерпаны попытки ввода — отправьте новый код';
+        }
+        $sent->attempts++;
+        if ($code === '' || ! hash_equals($sent->code_hash, self::hash($contract, $code))) {
+            $sent->save();
+            $left = self::MAX_ATTEMPTS - $sent->attempts;
+            if ($set = self::mainSet($contract)) {
+                $what = $purpose === self::CLOSE ? ' (закрытие договора)' : '';
+                Sms::logMovement($set, 'sms_code_wrong', "Введён неверный код{$what}, попытка {$sent->attempts} из ".self::MAX_ATTEMPTS);
+            }
+
+            return $left > 0 ? "Неверный код. Осталось попыток: {$left}" : 'Неверный код. Попытки исчерпаны — отправьте новый код';
+        }
+        $sent->used_at = now();
+        $sent->save();
+
+        return $sent;
+    }
+
+    /** Состояние подтверждения (подписания или закрытия) для карточки договора. */
+    public function status(StorageContract $contract, string $purpose = self::SIGN): array
+    {
+        $codes = $contract->smsCodes()->where('purpose', $purpose)->with(['sender', 'smsMessage'])->limit(10)->get();
         // Статус доставки — свежий из SMSC для ещё не доставленных (быстро: одно сообщение — один запрос)
         foreach ($codes->take(3) as $c) {
             if ($c->smsMessage && ! $c->smsMessage->final && (! $c->smsMessage->checked_at || $c->smsMessage->checked_at->lt(now()->subSeconds(15)))) {
@@ -176,7 +237,7 @@ final class ContractConfirmation
         $last = $codes->first(fn (ContractSmsCode $c) => $c->error === null);
 
         return [
-            'enabled' => $this->enabled(),
+            'enabled' => $purpose === self::CLOSE ? $this->closeEnabled() : $this->enabled(),
             'confirmed_at' => $contract->sms_confirmed_at?->toIso8601String(),
             'confirmed_phone' => $contract->sms_confirmed_phone,
             'confirmed_by' => $contract->smsConfirmedBy?->name,
@@ -198,7 +259,7 @@ final class ContractConfirmation
     }
 
     /** Основной комплект договора (QR = номер договора) — на нём пишется история по договору. */
-    private static function mainSet(StorageContract $contract): ?WheelSet
+    public static function mainSet(StorageContract $contract): ?WheelSet
     {
         return $contract->sets()->first();
     }

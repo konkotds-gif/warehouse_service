@@ -5,10 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Код подтверждения договора, отправленный клиенту по SMS (хранится только HMAC кода). */
+/** Код из SMS по договору — подписание (purpose = sign) или закрытие (close); хранится только HMAC кода. */
 class ContractSmsCode extends Model
 {
-    protected $fillable = ['contract_id', 'phone', 'code_hash', 'expires_at', 'attempts', 'provider_id', 'sms_message_id', 'error', 'sent_by', 'used_at'];
+    protected $fillable = ['contract_id', 'purpose', 'phone', 'code_hash', 'expires_at', 'attempts', 'provider_id', 'sms_message_id', 'error', 'sent_by', 'used_at'];
 
     protected $hidden = ['code_hash'];
 

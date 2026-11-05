@@ -23,7 +23,8 @@ async function lookup(code) {
     try {
         data.value = await getJson('/w/scan?code=' + encodeURIComponent(code));
         const ready = data.value.sets.filter((s) => s.status === 'ready');
-        if (ready.length === 1) start(ready[0]);
+        const lastViaSms = data.value.closing?.requires_code && data.value.closing.active === 1;
+        if (ready.length === 1 && !lastViaSms) start(ready[0]);
         beep(true);
     } catch (e) {
         data.value = null;
@@ -45,6 +46,7 @@ async function issue() {
         beep(true);
         const s = data.value.sets.find((x) => x.id === active.value.id);
         Object.assign(s, res.set);
+        if (data.value.closing && !['ready', 'ordered', 'placed', 'received', 'accepted', 'in_transit', 'lost'].includes(res.set.status)) data.value.closing.active--;
         active.value = null;
     } catch (e) {
         error.value = e.message;
@@ -86,7 +88,11 @@ async function issue() {
                 <div class="text-sm text-ink-500 mt-1">{{ s.title }}</div>
                 <div v-if="s.status === 'ordered'" class="text-sm mt-1">Заказан к выдаче в {{ s.issue_store }} на {{ d(s.issue_due_date) }} — ещё не привезли</div>
                 <div v-if="['placed', 'received', 'accepted'].includes(s.status)" class="text-sm mt-1">Не заказан к выдаче — <Link :href="`/contracts/${data.contract.id}`" class="text-blue-600 font-semibold">заказать</Link></div>
-                <button v-if="s.status === 'ready' && active?.id !== s.id" class="btn-primary mt-3" @click="start(s)">Выдать →</button>
+                <div v-if="s.status === 'ready' && data.closing?.requires_code && data.closing.active === 1" class="mt-3">
+                    <div class="text-sm text-ink-500">Последний комплект по договору: выдача закрывает договор, клиент подтверждает закрытие кодом из SMS.</div>
+                    <Link :href="`/contracts/${data.contract.id}?close=1`" class="btn-primary mt-2">Выдать и закрыть договор →</Link>
+                </div>
+                <button v-else-if="s.status === 'ready' && active?.id !== s.id" class="btn-primary mt-3" @click="start(s)">Выдать →</button>
                 <div v-if="active?.id === s.id" class="mt-3">
                     <label class="label">Отсканируйте QR на бирке колеса</label>
                     <input v-model="tag" class="input input-lg tabular" autofocus placeholder="QR бирки" @keyup.enter="tag && issue()" />

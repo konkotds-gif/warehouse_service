@@ -17,6 +17,7 @@ class StorageContract extends Model
 
     protected $fillable = ['number', 'client_id', 'vehicle_id', 'store_id', 'tariff_id', 'accepted_by', 'accepted_at',
         'paid_until', 'storage_until', 'months', 'amount', 'overdue_fee', 'overdue_days', 'debt', 'debt_updated_at', 'status', 'onec_doc_guid', 'closed_at', 'notes',
+        'closed_by', 'close_confirmation', 'close_phone', 'close_note',
         'sms_confirmed_at', 'sms_confirmed_phone', 'sms_confirmed_by'];
 
     protected function casts(): array
@@ -80,6 +81,11 @@ class StorageContract extends Model
     public function smsConfirmedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sms_confirmed_by');
+    }
+
+    public function closedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'closed_by');
     }
 
     public function payments(): HasMany

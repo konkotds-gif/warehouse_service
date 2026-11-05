@@ -27,6 +27,7 @@ final class IssueService
         private readonly ScanResolver $resolver,
         private readonly Sms $sms,
         private readonly Pricing $pricing,
+        private readonly ContractConfirmation $confirmation,
     ) {}
 
     /** Заказ к выдаче в магазине $store к дате $date. */
@@ -131,10 +132,14 @@ final class IssueService
 
     /**
      * Выдача клиенту. $scannedCode — QR с бирки выдаваемых колёс (защита от выдачи чужих колёс).
+     * Выдача последнего комплекта закрывает договор. Если закрытие подтверждается кодом из SMS,
+     * последний комплект выдаётся только через ContractClosing (он передаёт $closing — реквизиты закрытия).
+     *
+     * @param  array{confirmation: string, phone?: ?string, note?: ?string}|null  $closing
      */
-    public function issue(WheelSet $set, string $scannedCode, ?int $qty = null, ?User $user = null): WheelSet
+    public function issue(WheelSet $set, string $scannedCode, ?int $qty = null, ?User $user = null, ?array $closing = null): WheelSet
     {
-        return DB::transaction(function () use ($set, $scannedCode, $qty, $user) {
+        return DB::transaction(function () use ($set, $scannedCode, $qty, $user, $closing) {
             $set = $this->mover->lock($set);
             if ($set->status !== SetStatus::Ready) {
                 throw new DomainError("Выдать можно только комплект «Готов к выдаче» (сейчас: «{$set->status->label()}»)");
@@ -147,6 +152,10 @@ final class IssueService
                 throw new DomainError('Бирка не от этого комплекта — проверьте колёса');
             }
             $contract = StorageContract::whereKey($set->contract_id)->lockForUpdate()->firstOrFail();
+            $isLast = ! $contract->sets()->whereIn('status', SetStatus::activeValues())->whereKeyNot($set->id)->exists();
+            if ($isLast && $closing === null && $this->confirmation->requiresCloseCode($contract)) {
+                throw new DomainError('Это последний комплект по договору — выдайте его через «Закрыть договор»: клиент подтверждает закрытие кодом из SMS');
+            }
             $check = $this->debtCheck($contract);
             if ($check['blocked']) {
                 throw new DomainError('Выдача заблокирована: долг по договору '.number_format($check['debt'], 2, ',', ' ').' ₽ (данные 1С)');
@@ -186,8 +195,7 @@ final class IssueService
 
             $stillActive = $contract->sets()->whereIn('status', SetStatus::activeValues())->exists();
             if (! $stillActive) {
-                $contract->update(['status' => ContractStatus::Closed, 'closed_at' => now()]);
-                $this->outbox->record('contract.closed', $this->outbox->contractPayload($contract->fresh()));
+                $this->closeContract($contract, $user, $closing ?? ['confirmation' => 'none']);
             }
 
             return $set->fresh();
@@ -205,11 +213,43 @@ final class IssueService
             $set->garageSet?->update(['state' => GarageSetState::Retired]);
             $contract = $set->contract;
             if (! $contract->sets()->whereIn('status', SetStatus::activeValues())->exists()) {
-                $contract->update(['status' => ContractStatus::Closed, 'closed_at' => now()]);
-                $this->outbox->record('contract.closed', $this->outbox->contractPayload($contract->fresh()));
+                $this->closeContract($contract, null, ['confirmation' => 'auto', 'note' => 'Все комплекты списаны']);
             }
 
             return $set->fresh();
         });
+    }
+
+    /**
+     * Перевести договор в «Закрыт» с реквизитами закрытия и отправить contract.closed в 1С.
+     *
+     * @param  array{confirmation: string, phone?: ?string, note?: ?string}  $closing
+     */
+    public function closeContract(StorageContract $contract, ?User $user, array $closing): StorageContract
+    {
+        $contract->update([
+            'status' => ContractStatus::Closed,
+            'closed_at' => now(),
+            'closed_by' => $user?->id,
+            'close_confirmation' => $closing['confirmation'],
+            'close_phone' => $closing['phone'] ?? null,
+            'close_note' => isset($closing['note']) ? mb_substr((string) $closing['note'], 0, 255) : null,
+        ]);
+        $contract = $contract->fresh();
+        if ($set = ContractConfirmation::mainSet($contract)) {
+            $note = match ($closing['confirmation']) {
+                'sms' => 'Клиент подтвердил закрытие кодом из SMS'.(! empty($closing['phone']) ? " ({$closing['phone']})" : ''),
+                'manual' => 'Закрыт без кода из SMS: '.($closing['note'] ?? ''),
+                'auto' => $closing['note'] ?? 'Закрыт системой',
+                default => 'Закрыт при выдаче последнего комплекта',
+            };
+            if ((float) $contract->overdue_fee > 0) {
+                $note .= ' · за хранение после срока '.number_format((float) $contract->overdue_fee, 2, ',', ' ')." ₽ ({$contract->overdue_days} дн.)";
+            }
+            Sms::logMovement($set, 'contract_closed', $note);
+        }
+        $this->outbox->record('contract.closed', $this->outbox->contractPayload($contract));
+
+        return $contract;
     }
 }
