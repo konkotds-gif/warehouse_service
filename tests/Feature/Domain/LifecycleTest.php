@@ -116,7 +116,8 @@ class LifecycleTest extends TestCase
         $this->assertSame(2, OutboxEvent::where('event_type', 'transfer.completed')->count());
 
         $actions = Movement::where('wheel_set_id', $set->id)->orderBy('id')->pluck('action')->all();
-        $this->assertSame(['accept', 'ship', 'receive', 'place', 'order', 'ship', 'ready', 'issue'], $actions);
+        // SMS «готовы к выдаче» тоже пишется в историю движений
+        $this->assertSame(['accept', 'ship', 'receive', 'place', 'order', 'ship', 'ready', 'sms_sent', 'issue'], $actions);
     }
 
     public function test_cell_capacity_and_other_warehouse_are_enforced(): void

@@ -47,6 +47,8 @@ class ContractController extends Controller
     {
         $contract->load(['client', 'vehicle', 'store', 'tariff', 'acceptedBy', 'payments', 'extensions.author', 'extensions.outboxEvent',
             'sets.cell', 'sets.location', 'sets.transfer', 'sets.issueStore', 'sets.photos']);
+        // До истории движений: обновление статуса SMS может добавить в неё запись
+        $confirmationStatus = $confirmation->status($contract);
         $movements = Movement::with(['user', 'wheelSet'])->whereIn('wheel_set_id', $contract->sets->pluck('id'))
             ->orderByDesc('id')->limit(100)->get();
         $prints = TagPrint::with('user')->whereIn('wheel_set_id', $contract->sets->pluck('id'))->orderByDesc('id')->get();
@@ -90,7 +92,7 @@ class ContractController extends Controller
             'stores' => Location::active()->stores()->orderBy('code')->get(['id', 'code', 'name']),
             'otherGarage' => $otherGarage,
             'autoPrint' => $request->boolean('print'),
-            'confirmation' => $confirmation->status($contract),
+            'confirmation' => $confirmationStatus,
         ]);
     }
 

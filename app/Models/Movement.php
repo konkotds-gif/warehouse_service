@@ -53,6 +53,12 @@ class Movement extends Model
             'qty_mismatch' => 'Расхождение по количеству',
             'reprint' => 'Перепечатка бирок',
             'edit' => 'Исправление данных',
+            'sms_sent' => 'SMS отправлено',
+            'sms_failed' => 'SMS не отправлено',
+            'sms_delivered' => 'SMS доставлено',
+            'sms_undelivered' => 'SMS не доставлено',
+            'contract_signed' => 'Договор подписан кодом из SMS',
+            'sms_code_wrong' => 'Неверный код из SMS',
         ][$action] ?? $action;
     }
 }

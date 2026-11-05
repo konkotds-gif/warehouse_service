@@ -19,4 +19,7 @@ Schedule::command('cars:sync')->dailyAt('04:30')->timezone(config('app.display_t
 Schedule::call(fn () => Setting::put('scheduler.last_run_at', now()->toIso8601String()))->everyMinute()->name('scheduler-heartbeat');
 
 // Каждый час: сверка доменных пользователей с AD (роли по группам, отключённые и уволенные)
+// Статусы доставки SMS из SMSC (история движений договора)
+Schedule::command('sms:check-status')->everyMinute()->withoutOverlapping();
+
 Schedule::command('ldap:sync')->hourly()->withoutOverlapping();

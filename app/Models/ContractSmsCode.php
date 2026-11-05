@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** Код подтверждения договора, отправленный клиенту по SMS (хранится только HMAC кода). */
 class ContractSmsCode extends Model
 {
-    protected $fillable = ['contract_id', 'phone', 'code_hash', 'expires_at', 'attempts', 'provider_id', 'error', 'sent_by', 'used_at'];
+    protected $fillable = ['contract_id', 'phone', 'code_hash', 'expires_at', 'attempts', 'provider_id', 'sms_message_id', 'error', 'sent_by', 'used_at'];
 
     protected $hidden = ['code_hash'];
 
@@ -29,6 +29,11 @@ class ContractSmsCode extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sent_by');
+    }
+
+    public function smsMessage(): BelongsTo
+    {
+        return $this->belongsTo(SmsMessage::class);
     }
 
     public function isDelivered(): bool

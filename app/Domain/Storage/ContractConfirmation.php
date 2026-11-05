@@ -7,8 +7,10 @@ use App\Domain\Notifications\SmscGateway;
 use App\Domain\Support\DomainError;
 use App\Models\ContractSmsCode;
 use App\Models\Setting;
+use App\Models\SmsMessage;
 use App\Models\StorageContract;
 use App\Models\User;
+use App\Models\WheelSet;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -96,9 +98,10 @@ final class ContractConfirmation
 
         $plain = str_pad((string) random_int(0, 10 ** self::CODE_LENGTH - 1), self::CODE_LENGTH, '0', STR_PAD_LEFT);
         $text = strtr(self::text(), ['{code}' => $plain, '{number}' => $contract->number]);
-        $result = $this->sms->send($phone, $text);
+        $result = $this->sms->send($phone, $text, self::mainSet($contract), 'code');
 
         return $contract->smsCodes()->create([
+            'sms_message_id' => $result['message']?->id,
             'phone' => $phone,
             'code_hash' => self::hash($contract, $plain),
             'expires_at' => now()->addMinutes(self::TTL_MINUTES),
@@ -134,6 +137,9 @@ final class ContractConfirmation
             if ($code === '' || ! hash_equals($sent->code_hash, self::hash($contract, $code))) {
                 $sent->save();
                 $left = self::MAX_ATTEMPTS - $sent->attempts;
+                if ($set = self::mainSet($contract)) {
+                    Sms::logMovement($set, 'sms_code_wrong', "Введён неверный код, попытка {$sent->attempts} из ".self::MAX_ATTEMPTS);
+                }
 
                 return $left > 0 ? "Неверный код. Осталось попыток: {$left}" : 'Неверный код. Попытки исчерпаны — отправьте новый код';
             }
@@ -144,6 +150,9 @@ final class ContractConfirmation
                 'sms_confirmed_phone' => $sent->phone,
                 'sms_confirmed_by' => $user?->id,
             ])->save();
+            if ($set = self::mainSet($contract)) {
+                Sms::logMovement($set, 'contract_signed', "Клиент подтвердил договор № {$contract->number} кодом из SMS (код отправлен на {$sent->phone})");
+            }
 
             return $contract;
         });
@@ -157,7 +166,13 @@ final class ContractConfirmation
     /** Состояние подтверждения для карточки договора. */
     public function status(StorageContract $contract): array
     {
-        $codes = $contract->smsCodes()->with('sender')->limit(10)->get();
+        $codes = $contract->smsCodes()->with(['sender', 'smsMessage'])->limit(10)->get();
+        // Статус доставки — свежий из SMSC для ещё не доставленных (быстро: одно сообщение — один запрос)
+        foreach ($codes->take(3) as $c) {
+            if ($c->smsMessage && ! $c->smsMessage->final && (! $c->smsMessage->checked_at || $c->smsMessage->checked_at->lt(now()->subSeconds(15)))) {
+                $this->sms->refreshStatus($c->smsMessage);
+            }
+        }
         $last = $codes->first(fn (ContractSmsCode $c) => $c->error === null);
 
         return [
@@ -176,8 +191,16 @@ final class ContractConfirmation
                 'error' => $c->error,
                 'user' => $c->sender?->name,
                 'used' => $c->used_at !== null,
+                'delivery' => $c->smsMessage?->status !== null ? SmsMessage::statusLabel($c->smsMessage->status) : null,
+                'delivered' => $c->smsMessage?->isDelivered() ?? false,
             ])->all(),
         ];
+    }
+
+    /** Основной комплект договора (QR = номер договора) — на нём пишется история по договору. */
+    private static function mainSet(StorageContract $contract): ?WheelSet
+    {
+        return $contract->sets()->first();
     }
 
     private static function hash(StorageContract $contract, string $code): string
