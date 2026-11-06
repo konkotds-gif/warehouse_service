@@ -261,4 +261,38 @@ class BookingApiTest extends TestCase
         $this->delete("/vehicles/{$vehicle->id}/persons/{$p->id}")->assertRedirect();
         $this->assertSame('staff', $p->fresh()->revoked_reason);
     }
+
+    public function test_order_takes_both_axles_of_staggered_set(): void
+    {
+        $store = $this->store();
+        $contract = $this->accept($store, ['sets' => [
+            ['qty' => 2, 'tire_size' => '245/45 R19', 'with_rims' => true, 'condition' => 'used', 'season' => 'winter_studded'],
+            ['qty' => 2, 'tire_size' => '275/45 R19', 'with_rims' => true, 'condition' => 'used', 'season' => 'winter_studded'],
+        ]]);
+        [$front, $rear] = $contract->sets()->orderBy('tire_size')->get()->all();
+        // Обе оси перевезены на склад и размещены
+        $t = app(TransferService::class);
+        $tr = $t->create($store, $this->warehouse('02'), [$front->id, $rear->id]);
+        foreach ([$front, $rear] as $s) {
+            $t->scanOut($tr, $s->qr_code, $s->qty);
+        }
+        $t->ship($tr);
+        foreach ([$front, $rear] as $i => $s) {
+            $t->scanIn($tr, $s->qr_code);
+            app(PlacementService::class)->place($s->fresh(), '02_01_0'.($i + 1));
+        }
+        $at = now()->addDays(2)->setTime(10, 0)->toIso8601String();
+
+        $this->postJson('/api/v1/booking/orders', ['booking_code' => 'B-7', 'set_id' => $front->id, 'store_code' => 'М01', 'starts_at' => $at, 'phone' => '89123456789'], $this->h())
+            ->assertCreated()->assertJsonPath('set_ids', [$front->id, $rear->id]);
+        $this->assertSame(SetStatus::Ordered, $front->fresh()->status);
+        $this->assertSame(SetStatus::Ordered, $rear->fresh()->status);
+        // Вторая ось в lookup — уже под этой записью
+        $this->getJson('/api/v1/booking/lookup?phone=89123456789', $this->h())
+            ->assertJsonPath('contracts.0.sets.1.booking_code', 'B-7')->assertJsonPath('contracts.0.sets.1.orderable', false);
+
+        $this->deleteJson('/api/v1/booking/orders/B-7', [], $this->h())->assertOk();
+        $this->assertSame(SetStatus::Placed, $front->fresh()->status);
+        $this->assertSame(SetStatus::Placed, $rear->fresh()->status);
+    }
 }
