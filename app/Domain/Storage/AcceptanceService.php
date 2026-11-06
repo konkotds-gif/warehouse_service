@@ -2,6 +2,7 @@
 
 namespace App\Domain\Storage;
 
+use App\Domain\Family\VehiclePersons;
 use App\Domain\Integration\OneC\Outbox;
 use App\Domain\Support\DomainError;
 use App\Domain\Support\Normalizer;
@@ -32,6 +33,7 @@ final class AcceptanceService
      *   client_id?: string|null, client?: array{full_name: string, phone?: string|null, email?: string|null, consent_sms?: bool, consent_pd?: bool}|null,
      *   vehicle_id?: string|null, vehicle?: array{plate?: string|null, no_plate?: bool, make: string, model: string}|null,
      *   store_id: int, months?: int|null, notes?: string|null,
+     *   persons?: list<array{client_id?: string|null, phone?: string|null, full_name?: string|null, all_vehicles?: bool}>,
      *   sets: list<array{garage_set_id?: string|null, title?: string|null, qty: int, tire_size: string, with_rims: bool,
      *          condition: string, season?: string|null, brand_model?: string|null, damages?: list<string>, notes?: string|null}>
      * }  $data
@@ -50,6 +52,7 @@ final class AcceptanceService
 
             $client = $this->resolveClient($data);
             $vehicle = $this->resolveVehicle($client, $data);
+            $this->addPersons($client, $vehicle, $data['persons'] ?? [], $user);
             $months = $this->pricing->validateMonths((int) ($data['months'] ?? min(6, Pricing::settings()['max_months'])));
             // Цена по диаметру каждого комплекта; проверяем до создания договора
             $lines = array_map(function ($d) use ($months) {
@@ -199,6 +202,28 @@ final class AcceptanceService
         $this->outbox->record('client.created', self::clientPayload($client));
 
         return $client;
+    }
+
+    /**
+     * Доверенные лица, указанные при приёме (семейный аккаунт): добавляет владелец машины.
+     *
+     * @param  array<int, array<string, mixed>>  $persons
+     */
+    private function addPersons(Client $client, Vehicle $vehicle, array $persons, ?User $user): void
+    {
+        $persons = array_values(array_filter($persons, fn ($p) => ! empty($p['client_id']) || filled($p['phone'] ?? null)));
+        if ($persons === []) {
+            return;
+        }
+        if ($vehicle->client_id !== $client->id) {
+            throw DomainError::invalid('Доверенных лиц добавляет владелец машины', 'persons');
+        }
+        $service = app(VehiclePersons::class);
+        foreach ($persons as $p) {
+            $person = ! empty($p['client_id']) ? Client::findOrFail($p['client_id']) : null;
+            $service->add($vehicle, $person, ['phone' => $p['phone'] ?? null, 'full_name' => $p['full_name'] ?? null],
+                'staff', $user, 'Добавлен при приёме на хранение', filter_var($p['all_vehicles'] ?? false, FILTER_VALIDATE_BOOLEAN));
+        }
     }
 
     private function resolveVehicle(Client $client, array $data): Vehicle

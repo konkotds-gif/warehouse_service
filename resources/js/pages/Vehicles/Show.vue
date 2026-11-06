@@ -18,13 +18,16 @@ const props = defineProps({ vehicle: Object, client: Object, garageSets: Array, 
 const showPerson = ref(false);
 const personMode = ref('find');
 const personClient = ref(null);
-const person = useForm({ client_id: null, phone: '', full_name: '', note: '' });
+const person = useForm({ client_id: null, phone: '', full_name: '', note: '', all_vehicles: false });
 function addPerson() {
-    person.transform((x) => (personMode.value === 'find' ? { client_id: personClient.value?.id, note: x.note } : { phone: x.phone, full_name: x.full_name, note: x.note }))
+    person.transform((x) => (personMode.value === 'find' ? { client_id: personClient.value?.id, note: x.note, all_vehicles: x.all_vehicles } : { phone: x.phone, full_name: x.full_name, note: x.note, all_vehicles: x.all_vehicles }))
         .post(`/vehicles/${props.vehicle.id}/persons`, { preserveScroll: true, onSuccess: () => { showPerson.value = false; personClient.value = null; person.reset(); } });
 }
 async function revokePerson(p) {
-    if (await ask(`${p.client?.full_name} больше не сможет сдавать и забирать колёса этой машины и не увидит её в онлайн-записи.`, { title: 'Отозвать доверенность?', ok: 'Отозвать', danger: true })) {
+    const text = p.all_vehicles
+        ? `${p.client?.full_name} потеряет доступ ко всем автомобилям владельца: не сможет сдавать и забирать их колёса и не увидит их в онлайн-записи.`
+        : `${p.client?.full_name} больше не сможет сдавать и забирать колёса этой машины и не увидит её в онлайн-записи.`;
+    if (await ask(text, { title: 'Отозвать доверенность?', ok: 'Отозвать', danger: true })) {
         router.delete(`/vehicles/${props.vehicle.id}/persons/${p.id}`, { preserveScroll: true });
     }
 }
@@ -88,6 +91,7 @@ async function destroy() {
             <div v-for="p in persons" :key="p.id" class="flex items-start justify-between gap-2 py-2 border-b border-line last:border-0">
                 <div>
                     <Link v-if="p.client" :href="`/clients/${p.client.id}`" class="font-semibold text-blue-600">{{ p.client.full_name }}</Link>
+                    <span v-if="p.all_vehicles" class="badge badge-blue ml-1">все автомобили</span>
                     <div class="text-sm text-ink-500 tabular">{{ phone(p.client?.phone) }}</div>
                     <div class="text-xs text-ink-500">добавил {{ p.source_label }} · {{ d(p.created_at) }}<template v-if="p.note"> · {{ p.note }}</template></div>
                 </div>
@@ -181,6 +185,8 @@ async function destroy() {
                 <div><label class="label">ФИО (если клиента с таким телефоном ещё нет)</label><input v-model="person.full_name" class="input" maxlength="255" /><div class="error" v-if="person.errors.full_name">{{ person.errors.full_name }}</div></div>
             </template>
             <div><label class="label">Примечание</label><input v-model="person.note" class="input" placeholder="Например: супруга, владелец согласен лично" maxlength="255" /></div>
+            <label class="flex items-start gap-2 text-sm"><input v-model="person.all_vehicles" type="checkbox" class="mt-1" />
+                <span><b>Все автомобили владельца</b> — доверенное лицо увидит все машины {{ client?.full_name }}, в том числе те, что появятся позже.</span></label>
             <p class="text-xs text-ink-500">Добавляйте только с согласия владельца {{ client?.full_name }}. Владелец может сам добавлять и убирать доверенных лиц в личном кабинете онлайн-записи.</p>
             <div class="error" v-if="person.errors.domain">{{ person.errors.domain }}</div>
             <button class="btn-primary" :disabled="person.processing || (personMode === 'find' ? !personClient : !person.phone)" @click="addPerson">Добавить</button>

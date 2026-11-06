@@ -46,6 +46,10 @@ const newVehicle = reactive({ plate: '', plate_mode: 'ru', make: '', model: '' }
 const plateOk = computed(() => newVehicle.plate_mode === 'none' || (newVehicle.plate_mode === 'ru' ? ruPlateComplete(newVehicle.plate) : newVehicle.plate.trim().length >= 2));
 const isNewVehicle = ref(!props.client || !props.garage.length);
 const selectedVehicle = computed(() => props.garage.find((v) => v.id === vehicleId.value));
+// Доверенные лица при приёме (семейный аккаунт): добавляет только владелец машины
+const persons = ref([]);
+const canAddPersons = computed(() => isNewVehicle.value || (selectedVehicle.value && selectedVehicle.value.access !== 'trusted'));
+const personsFilled = computed(() => (canAddPersons.value ? persons.value.filter((p) => phoneComplete(p.phone)) : []));
 
 // --- Шаг 3: комплекты
 const blank = () => ({ garage_set_id: null, title: '', qty: 4, tire_size: '', with_rims: null, condition: null, season: null, brand: '', model: '', damages: [], notes: '', condition_needs_confirm: false });
@@ -131,6 +135,7 @@ function submit() {
         client: props.client ? null : { ...newClient },
         vehicle_id: isNewVehicle.value ? null : vehicleId.value,
         vehicle: isNewVehicle.value ? { plate: newVehicle.plate_mode === 'none' ? null : newVehicle.plate, no_plate: newVehicle.plate_mode === 'none', make: newVehicle.make, model: newVehicle.model } : null,
+        persons: personsFilled.value.map((p) => ({ phone: p.phone, full_name: p.full_name || null, all_vehicles: p.all_vehicles })),
     })).post('/accept');
 }
 const damageLabelsValues = (s) => damagesFor(s).filter((x) => s.damages.includes(x.value)).map((x) => x.value);
@@ -231,6 +236,22 @@ const allErrors = computed(() => Object.values(form.errors));
             <div><label class="label">Госномер *</label><PlateInput v-model="newVehicle.plate" v-model:mode="newVehicle.plate_mode" /></div>
             <CarMakeModel v-model:make="newVehicle.make" v-model:model="newVehicle.model" required />
         </div>
+
+        <!-- Доверенные лица: сразу при новом договоре, без захода в карточку авто -->
+        <div v-if="canAddPersons" class="mt-5 border-t border-line pt-4">
+            <div class="flex items-center justify-between gap-2">
+                <h3 class="font-bold">Доверенные лица <span class="text-sm font-normal text-ink-500">— необязательно</span></h3>
+                <button v-if="persons.length < 5" type="button" class="btn-ghost !min-h-8 !text-xs" @click="persons.push({ phone: '', full_name: '', all_vehicles: true })">+ Добавить</button>
+            </div>
+            <p v-if="!persons.length" class="text-sm text-ink-500 mt-1">Например, супруга: сможет сдавать и забирать колёса и увидит хранения в онлайн-записи. Только с согласия клиента.</p>
+            <div v-for="(p, i) in persons" :key="i" class="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] items-end rounded-[12px] bg-bg p-3">
+                <div><label class="label">Телефон</label><PhoneInput v-model="p.phone" /></div>
+                <div><label class="label">ФИО (если нового клиента)</label><input v-model="p.full_name" class="input" maxlength="255" /></div>
+                <button type="button" class="btn-ghost !min-h-10 text-red-600" @click="persons.splice(i, 1)">Убрать</button>
+                <label class="sm:col-span-3 flex items-start gap-2 text-sm"><input v-model="p.all_vehicles" type="checkbox" class="mt-1" />
+                    <span><b>Все автомобили клиента</b>, в том числе новые. Без галочки — только этот автомобиль.</span></label>
+            </div>
+        </div>
     </section>
 
     <!-- 3. Комплект -->
@@ -306,6 +327,8 @@ const allErrors = computed(() => Object.values(form.errors));
         <dl class="grid gap-4 sm:grid-cols-2">
             <div><dt class="text-sm text-ink-500">Клиент</dt><dd class="font-semibold">{{ client?.full_name || newClient.full_name }} · {{ fmtPhone(client?.phone) !== '—' ? fmtPhone(client?.phone) : newClient.phone }}</dd></div>
             <div><dt class="text-sm text-ink-500">Автомобиль</dt><dd class="font-semibold">{{ isNewVehicle ? `${newVehicle.make} ${newVehicle.model} ${newVehicle.plate_mode === 'none' ? 'без номера' : newVehicle.plate}` : `${selectedVehicle?.make} ${selectedVehicle?.model} ${displayPlate(selectedVehicle?.plate)}` }}</dd></div>
+            <div v-if="personsFilled.length" class="sm:col-span-2"><dt class="text-sm text-ink-500">Доверенные лица</dt>
+                <dd class="font-semibold"><span v-for="(p, i) in personsFilled" :key="i" class="mr-3">{{ p.full_name || p.phone }}<span class="font-normal text-ink-500"> · {{ p.all_vehicles ? 'все автомобили' : 'только этот' }}</span></span></dd></div>
             <div><dt class="text-sm text-ink-500">Магазин приёма</dt><dd class="font-semibold">{{ stores.find((s) => s.id === form.store_id)?.label }}</dd></div>
             <div><dt class="text-sm text-ink-500">Срок и стоимость хранения</dt><dd class="font-semibold">{{ form.months }} мес. · <span class="tabular">{{ money(total) }}</span></dd></div>
             <div><dt class="text-sm text-ink-500">Срок договора</dt><dd class="font-semibold tabular">с {{ fmtDate(startDate) }} по {{ fmtDate(endDate) }}</dd></div>

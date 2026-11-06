@@ -43,7 +43,7 @@ class BookingStorage
         $ids = $clients->pluck('id')->all();
         $vehicles = $ids === [] ? collect() : Vehicle::with(['client', 'garageSets'])
             ->where(fn ($q) => $q->whereIn('client_id', $ids)
-                ->orWhereIn('id', VehiclePerson::active()->whereIn('client_id', $ids)->select('vehicle_id')))
+                ->orWhereIn('id', VehiclePerson::vehicleIdsFor($ids)))
             ->orderBy('created_at')->get();
 
         $foreign = null;
@@ -79,7 +79,7 @@ class BookingStorage
             return [];
         }
         // Машины, где клиент — доверенное лицо: их действующие договоры тоже видны (закрытые чужие — нет)
-        $trusted = VehiclePerson::active()->whereIn('client_id', $clientIds)->pluck('vehicle_id');
+        $trusted = VehiclePerson::vehicleIdsFor($clientIds)->pluck('id');
         $contracts = StorageContract::with(['vehicle', 'client', 'store', 'extensions', 'sets.contract', 'sets.location', 'sets.garageSet'])
             ->where(fn ($q) => $q
                 ->where(fn ($own) => $own->whereIn('client_id', $clientIds)
@@ -144,7 +144,7 @@ class BookingStorage
             'owner_name' => $owner ? null : self::shortName($v->client?->full_name),
             'persons' => $owner ? collect(VehiclePersons::present($v))->map(fn ($p) => [
                 'id' => $p['id'], 'full_name' => $p['client']['full_name'] ?? null, 'phone' => $p['client']['phone'] ?? null,
-                'source' => $p['source'], 'created_at' => $p['created_at'],
+                'source' => $p['source'], 'all_vehicles' => $p['all_vehicles'], 'created_at' => $p['created_at'],
             ])->all() : [],
             // Доверенному — его собственная запись, чтобы он мог отказаться от доступа
             'my_person_id' => $owner ? null : $v->persons()->whereIn('client_id', $clientIds)->value('id'),

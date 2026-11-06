@@ -116,17 +116,19 @@ class BookingController extends ApiController
             'phone' => ['required', 'string', 'max:32'],
             'person_phone' => ['required', 'string', 'max:32'],
             'person_name' => ['nullable', 'string', 'max:255'],
+            'all_vehicles' => ['nullable', 'boolean'],
         ]);
         $this->assertOwner($vehicle, $this->phone($data['phone']));
         $person = $persons->add($vehicle, null, ['phone' => $data['person_phone'], 'full_name' => $data['person_name'] ?? null],
-            'booking', null, 'Добавил владелец в онлайн-записи');
+            'booking', null, 'Добавил владелец в онлайн-записи', (bool) ($data['all_vehicles'] ?? false));
 
-        return $this->respond(['id' => $person->id, 'full_name' => $person->client->full_name, 'phone' => $person->client->phone], 201, 'person');
+        return $this->respond(['id' => $person->id, 'full_name' => $person->client->full_name, 'phone' => $person->client->phone,
+            'all_vehicles' => $person->all_vehicles], 201, 'person');
     }
 
     public function revokePerson(Request $request, Vehicle $vehicle, VehiclePerson $person, VehiclePersons $persons): Response
     {
-        abort_if($person->vehicle_id !== $vehicle->id, 404);
+        abort_unless(VehiclePerson::forVehicle($vehicle)->whereKey($person->id)->exists(), 404);
         $phone = $this->phone((string) $request->input('phone', $request->query('phone')));
         // Убрать может владелец машины или само доверенное лицо (отказаться от доступа)
         $self = $person->client && $person->client->phone === $phone;
