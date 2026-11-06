@@ -78,20 +78,29 @@ class BookingStorage
         if ($clientIds === []) {
             return [];
         }
-        $contracts = StorageContract::with(['vehicle', 'store', 'extensions', 'sets.contract', 'sets.location', 'sets.garageSet'])
-            ->whereIn('client_id', $clientIds)
-            ->where(fn ($q) => $q->where('status', '!=', ContractStatus::Closed->value)->orWhere('closed_at', '>=', now()->subYear()))
+        // Машины, где клиент — доверенное лицо: их действующие договоры тоже видны (закрытые чужие — нет)
+        $trusted = VehiclePerson::active()->whereIn('client_id', $clientIds)->pluck('vehicle_id');
+        $contracts = StorageContract::with(['vehicle', 'client', 'store', 'extensions', 'sets.contract', 'sets.location', 'sets.garageSet'])
+            ->where(fn ($q) => $q
+                ->where(fn ($own) => $own->whereIn('client_id', $clientIds)
+                    ->where(fn ($w) => $w->where('status', '!=', ContractStatus::Closed->value)->orWhere('closed_at', '>=', now()->subYear())))
+                ->orWhere(fn ($tr) => $tr->whereIn('vehicle_id', $trusted)->whereNotIn('client_id', $clientIds)
+                    ->where('status', '!=', ContractStatus::Closed->value)))
             ->orderByRaw('status = ? asc', [ContractStatus::Closed->value])->orderByDesc('accepted_at')->get();
         $setIds = $contracts->flatMap(fn (StorageContract $c) => $c->sets->pluck('id'));
         $orders = BookingOrder::where('status', 'active')->whereIn('wheel_set_id', $setIds)->get()->keyBy('wheel_set_id');
 
-        return $contracts->map(function (StorageContract $c) use ($orders, $store) {
+        return $contracts->map(function (StorageContract $c) use ($orders, $store, $clientIds) {
+            $own = in_array($c->client_id, $clientIds, true);
             $closed = $c->status === ContractStatus::Closed;
             $check = $closed ? ['debt' => 0, 'warnings' => [], 'overdue' => []] : $this->issue->debtCheck($c);
             $active = $c->sets->filter(fn (WheelSet $s) => $s->status->isActive());
 
             return [
                 'number' => $c->number,
+                // own — договор клиента; trusted — договор владельца машины, где клиент доверенное лицо
+                'role' => $own ? 'own' : 'trusted',
+                'owner_name' => $own ? null : self::shortName($c->client?->full_name),
                 'status' => $c->status->value,
                 'status_label' => $c->status->label(),
                 'store' => $c->store?->name,

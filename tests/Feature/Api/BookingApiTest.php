@@ -78,6 +78,7 @@ class BookingApiTest extends TestCase
         // Раздел «Хранение колёс»: договоры клиента с комплектами
         $res->assertJsonPath('contracts.0.number', $set->contract->number)
             ->assertJsonPath('contracts.0.status', 'open')
+            ->assertJsonPath('contracts.0.role', 'own')
             ->assertJsonPath('contracts.0.vehicle.plate', 'А123ВС86')
             ->assertJsonPath('contracts.0.sets.0.set_id', $set->id)
             ->assertJsonPath('contracts.0.wheels', $set->qty);
@@ -118,7 +119,11 @@ class BookingApiTest extends TestCase
             ->assertJsonPath('vehicles.0.owner_name', 'Иван И.')
             ->assertJsonPath('vehicles.0.persons', [])
             ->assertJsonPath('vehicles.0.my_person_id', VehiclePerson::first()->id)
-            ->assertJsonPath('vehicles.0.stored_sets.0.set_id', $set->id);
+            ->assertJsonPath('vehicles.0.stored_sets.0.set_id', $set->id)
+            // Договор владельца — в разделе «Хранение» доверенного лица, с пометкой
+            ->assertJsonPath('contracts.0.number', $set->contract->number)
+            ->assertJsonPath('contracts.0.role', 'trusted')
+            ->assertJsonPath('contracts.0.owner_name', 'Иван И.');
         $this->assertStringNotContainsString('+79123456789', $res->getContent());
 
         $this->postJson('/api/v1/booking/orders', ['booking_code' => 'B-100', 'set_id' => $set->id, 'store_code' => 'М01',
