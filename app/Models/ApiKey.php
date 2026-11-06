@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /** Ключ сервисной учётки 1С. В БД хранится только SHA-256 хэш. */
 class ApiKey extends Model
@@ -45,8 +46,14 @@ class ApiKey extends Model
         if (blank($this->allowed_ips)) {
             return true;
         }
-        $list = array_map('trim', explode(',', $this->allowed_ips));
 
-        return $ip !== null && in_array($ip, $list, true);
+        // Через запятую: отдельные адреса или подсети (10.0.0.0/24)
+        return $ip !== null && IpUtils::checkIp($ip, self::ipList($this->allowed_ips));
+    }
+
+    /** @return list<string> */
+    public static function ipList(?string $value): array
+    {
+        return array_values(array_filter(array_map('trim', preg_split('/[,;\s]+/', (string) $value))));
     }
 }

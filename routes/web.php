@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Web\AcceptController;
+use App\Http\Controllers\Web\Admin\ApiKeyController;
 use App\Http\Controllers\Web\Admin\IntegrationController;
 use App\Http\Controllers\Web\Admin\LdapSettingsController;
 use App\Http\Controllers\Web\Admin\SettingsController;
@@ -165,8 +166,12 @@ Route::middleware('auth')->group(function () {
         Route::put('/admin/tariffs/pricing', [TariffController::class, 'updatePricing'])->name('admin.tariffs.pricing');
         Route::put('/admin/tariffs/{tariff}', [TariffController::class, 'update'])->name('admin.tariffs.update');
         Route::get('/admin/integration', [IntegrationController::class, 'index'])->name('admin.integration');
-        Route::post('/admin/api-keys', [IntegrationController::class, 'storeKey'])->name('admin.keys.store');
-        Route::post('/admin/api-keys/{key}/revoke', [IntegrationController::class, 'revokeKey'])->name('admin.keys.revoke');
+        Route::get('/admin/api-keys', [ApiKeyController::class, 'index'])->name('admin.keys');
+        Route::post('/admin/api-keys', [ApiKeyController::class, 'store'])->name('admin.keys.store');
+        Route::put('/admin/api-keys/{key}', [ApiKeyController::class, 'update'])->name('admin.keys.update');
+        Route::post('/admin/api-keys/{key}/toggle', [ApiKeyController::class, 'toggle'])->name('admin.keys.toggle');
+        Route::post('/admin/api-keys/{key}/revoke', [ApiKeyController::class, 'toggle'])->name('admin.keys.revoke');
+        Route::post('/admin/api-keys/{key}/allow-ip', [ApiKeyController::class, 'allowIp'])->name('admin.keys.allow-ip');
         Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
         Route::put('/admin/settings/cars', [SettingsController::class, 'updateCars'])->name('admin.settings.cars');
         Route::post('/admin/settings/cars/test', [SettingsController::class, 'testCars'])->name('admin.settings.cars.test');

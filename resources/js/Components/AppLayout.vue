@@ -31,6 +31,7 @@ const nav = computed(() => [
     { href: '/admin/users', label: 'Пользователи', icon: 'users', show: can('admin') },
     { href: '/admin/tariffs', label: 'Тарифы', icon: 'file', show: can('admin') },
     { href: '/admin/integration', label: 'Обмен с 1С', icon: 'sync', show: can('admin') },
+    { href: '/admin/api-keys', label: 'Ключи API', icon: 'settings', show: can('admin') },
     { href: '/admin/settings', label: 'Настройки', icon: 'settings', show: can('admin') },
 ].filter((i) => i.show));
 

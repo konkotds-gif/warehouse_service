@@ -57,7 +57,7 @@ class WebTest extends TestCase
             '/transfers' => 'Transfers/Index', '/transfers/create?from='.$store->id => 'Transfers/Create',
             '/transfers/'.$transfer->id => 'Transfers/Show', '/tasks' => 'Tasks/Index', '/inventories' => 'Inventory/Index',
             '/locations' => 'Locations/Index', '/locations/'.$wh->id => 'Locations/Show', '/reports' => 'Reports/Index',
-            '/admin/users' => 'Admin/Users', '/admin/tariffs' => 'Admin/Tariffs', '/admin/integration' => 'Admin/Integration', '/admin/settings' => 'Admin/Settings',
+            '/admin/users' => 'Admin/Users', '/admin/tariffs' => 'Admin/Tariffs', '/admin/integration' => 'Admin/Integration', '/admin/api-keys' => 'Admin/ApiKeys', '/admin/settings' => 'Admin/Settings',
         ];
         foreach ($pages as $url => $component) {
             $this->get($url)->assertOk()->assertInertia(fn (Assert $p) => $p->component($component));
