@@ -4,8 +4,10 @@ namespace App\Models;
 
 use App\Domain\Support\Normalizer;
 use App\Models\Concerns\Audited;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -28,6 +30,27 @@ class Client extends Model
     public function vehicles(): HasMany
     {
         return $this->hasMany(Vehicle::class);
+    }
+
+    /** Машины, где клиент — доверенное лицо (действующие доверенности). */
+    public function trustedVehicles(): BelongsToMany
+    {
+        return $this->belongsToMany(Vehicle::class, 'vehicle_persons')->wherePivotNull('revoked_at')
+            ->whereNull('vehicles.deleted_at')->withPivot(['id', 'source', 'created_at']);
+    }
+
+    /** Свои машины и машины, где клиент доверенное лицо. */
+    public function accessibleVehiclesQuery(): Builder
+    {
+        return Vehicle::query()->where(fn ($q) => $q->where('client_id', $this->id)
+            ->orWhereIn('id', VehiclePerson::active()->where('client_id', $this->id)->select('vehicle_id')));
+    }
+
+    /** Может ли клиент пользоваться машиной (владелец или доверенное лицо). */
+    public function canUseVehicle(Vehicle $vehicle): bool
+    {
+        return $vehicle->client_id === $this->id
+            || VehiclePerson::active()->where('vehicle_id', $vehicle->id)->where('client_id', $this->id)->exists();
     }
 
     public function contracts(): HasMany

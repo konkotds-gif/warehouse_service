@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Family\VehiclePersons;
 use App\Domain\Storage\GarageSetState;
 use App\Domain\Storage\SetStatus;
 use App\Domain\Support\DomainError;
@@ -12,6 +13,7 @@ use App\Models\Client;
 use App\Models\StorageContract;
 use App\Models\Vehicle;
 use App\Models\VehicleOwnerChange;
+use App\Models\VehiclePerson;
 use App\Models\WheelSet;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,6 +91,7 @@ class VehicleController extends Controller
                 'sets_moved' => $o->sets_moved, 'note' => $o->note, 'user' => $o->user?->name,
             ])->all(),
             'inStorage' => $vehicle->hasSetsInStorage(),
+            'persons' => VehiclePersons::present($vehicle),
         ]);
     }
 
@@ -147,9 +150,37 @@ class VehicleController extends Controller
                     ->update(['state' => GarageSetState::Retired->value]);
             }
             $vehicle->update(['client_id' => $to->id]);
+            // Доверенности давал прежний владелец — при смене владельца они теряют силу
+            app(VehiclePersons::class)->revokeAll($vehicle, 'owner_changed');
         });
 
         return back()->with('success', 'Владелец изменён: '.$to->full_name);
+    }
+
+    /**
+     * Добавить доверенное лицо (семейный аккаунт): существующего клиента или нового по телефону и имени.
+     * Доверенное лицо видит машину в своём гараже, сдаёт колёса на свой договор и забирает их.
+     */
+    public function addPerson(Request $request, Vehicle $vehicle, VehiclePersons $persons): RedirectResponse
+    {
+        $data = $request->validate([
+            'client_id' => ['nullable', 'uuid'],
+            'phone' => ['nullable', 'string', 'max:32'],
+            'full_name' => ['nullable', 'string', 'max:255'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+        $person = ! empty($data['client_id']) ? Client::findOrFail($data['client_id']) : null;
+        $p = $persons->add($vehicle, $person, $data, 'staff', $request->user(), $data['note'] ?? null);
+
+        return back()->with('success', 'Доверенное лицо добавлено: '.$p->client->full_name);
+    }
+
+    public function revokePerson(Vehicle $vehicle, VehiclePerson $person, VehiclePersons $persons): RedirectResponse
+    {
+        abort_if($person->vehicle_id !== $vehicle->id, 404);
+        $persons->revoke($person, 'staff');
+
+        return back()->with('success', 'Доверенность отозвана');
     }
 
     /** Удалить ошибочную карточку авто (мягко). Договоры сохраняют ссылку на неё. */

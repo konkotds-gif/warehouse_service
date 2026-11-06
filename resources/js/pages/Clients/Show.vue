@@ -63,7 +63,8 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
         <div v-for="v in garage" :key="v.id" class="card p-5">
             <div class="flex items-center gap-3">
                 <span class="icon-tile"><Icon name="car" /></span>
-                <div><Link :href="`/vehicles/${v.id}`" class="text-lg font-bold text-blue-600">{{ v.make }} {{ v.model }}</Link><div class="tabular text-ink-500">{{ v.plate ? displayPlate(v.plate) : 'без номеров' }}<template v-if="v.year"> · {{ v.year }}</template></div></div>
+                <div><Link :href="`/vehicles/${v.id}`" class="text-lg font-bold text-blue-600">{{ v.make }} {{ v.model }}</Link><div class="tabular text-ink-500">{{ v.plate ? displayPlate(v.plate) : 'без номеров' }}<template v-if="v.year"> · {{ v.year }}</template></div>
+                    <div v-if="v.access === 'trusted'" class="text-xs text-ink-500 mt-0.5"><span class="badge badge-blue">доверенное лицо</span> владелец <Link :href="`/clients/${v.owner?.id}`" class="text-blue-600">{{ v.owner?.full_name }}</Link></div></div>
             </div>
             <div class="mt-4 grid gap-2">
                 <div v-for="g in v.garage_sets" :key="g.id" class="rounded-[12px] border border-line p-3" :class="g.state === 'retired' ? 'opacity-50' : ''">
@@ -77,7 +78,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
                     <div class="mt-2 flex flex-wrap gap-2" v-if="g.state !== 'retired'">
                         <Link v-if="!g.active_set && can('accept')" :href="`/accept?garage_set=${g.id}`" class="btn-link !min-h-8 !text-xs">Принять →</Link>
                         <button class="btn-ghost !min-h-8 !text-xs" @click="openGs(g)">Изменить</button>
-                        <button v-if="garage.length > 1" class="btn-ghost !min-h-8 !text-xs" @click="move.set = g; move.vehicle_id = null">На другую машину</button>
+                        <button v-if="v.access !== 'trusted' && garage.filter((x) => x.access !== 'trusted').length > 1" class="btn-ghost !min-h-8 !text-xs" @click="move.set = g; move.vehicle_id = null">На другую машину</button>
                         <button v-if="!g.active_set" class="btn-ghost !min-h-8 !text-xs" @click="router.post(`/garage-sets/${g.id}/retire`, {}, { preserveScroll: true })">Продан / утилизирован</button>
                     </div>
                 </div>
@@ -137,7 +138,7 @@ const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' 
         </div>
     </Modal>
     <Modal :show="!!move.set" title="Перенести комплект на другую машину" @close="move.set = null">
-        <select v-model="move.vehicle_id" class="input"><option :value="null">Выберите автомобиль</option><option v-for="v in garage.filter((x) => x.id !== move.set?.vehicle_id)" :key="v.id" :value="v.id">{{ v.title }}</option></select>
+        <select v-model="move.vehicle_id" class="input"><option :value="null">Выберите автомобиль</option><option v-for="v in garage.filter((x) => x.id !== move.set?.vehicle_id && x.access !== 'trusted')" :key="v.id" :value="v.id">{{ v.title }}</option></select>
         <button class="btn-primary w-full mt-4" :disabled="!move.vehicle_id" @click="router.post(`/garage-sets/${move.set.id}/move`, { vehicle_id: move.vehicle_id }, { preserveScroll: true, onSuccess: () => (move.set = null) })">Перенести</button>
     </Modal>
     <Modal :show="showMerge" title="Объединить с дублем" @close="showMerge = false">

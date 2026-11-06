@@ -6,9 +6,9 @@ import Pagination from '../../Components/Pagination.vue';
 import Modal from '../../Components/Modal.vue';
 import { dt } from '../../lib/format';
 
-defineProps({ events: Object, keys: Array, stats: Object, filter: String });
+defineProps({ events: Object, keys: Array, stats: Object, filter: String, scopes: { type: Object, default: () => ({ onec: '1С' }) } });
 const page = usePage();
-const key = useForm({ name: '1С УТ', allowed_ips: '' });
+const key = useForm({ name: '1С УТ', allowed_ips: '', scope: 'onec' });
 const payload = ref(null);
 </script>
 
@@ -25,22 +25,23 @@ const payload = ref(null);
     </div>
 
     <section class="card p-5 mt-6">
-        <h2 class="text-lg mb-3">Ключи API (сервисные учётки 1С)</h2>
+        <h2 class="text-lg mb-3">Ключи API (1С и онлайн-запись)</h2>
         <div v-if="page.props.flash.secret" class="mb-4 rounded-[12px] bg-amber-500/10 p-4">
             <div class="text-sm font-semibold text-amber-700">Новый ключ — скопируйте сейчас, повторно он не показывается:</div>
             <code class="block mt-2 break-all text-lg">{{ page.props.flash.secret }}</code>
         </div>
         <table class="table">
-            <thead><tr><th>#</th><th>Название</th><th>IP</th><th>Использован</th><th>Статус</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Название</th><th>Для</th><th>IP</th><th>Использован</th><th>Статус</th><th></th></tr></thead>
             <tbody>
-                <tr v-for="k in keys" :key="k.id"><td>{{ k.id }}</td><td>{{ k.name }}</td><td>{{ k.allowed_ips || 'любые' }}</td><td class="tabular">{{ dt(k.last_used_at) }}</td>
+                <tr v-for="k in keys" :key="k.id"><td>{{ k.id }}</td><td>{{ k.name }}</td><td>{{ (k.scopes || ['onec']).map((x) => scopes[x] || x).join(', ') }}</td><td>{{ k.allowed_ips || 'любые' }}</td><td class="tabular">{{ dt(k.last_used_at) }}</td>
                     <td><span class="badge" :class="k.is_active ? 'badge-green' : 'badge-gray'">{{ k.is_active ? 'активен' : 'отключён' }}</span></td>
                     <td><button v-if="k.is_active" class="btn-ghost !min-h-8 text-red-600" @click="router.post(`/admin/api-keys/${k.id}/revoke`)">Отключить</button></td></tr>
             </tbody>
         </table>
-        <form class="mt-4 grid gap-3 sm:grid-cols-3" @submit.prevent="key.post('/admin/api-keys')">
+        <form class="mt-4 grid gap-3 sm:grid-cols-4" @submit.prevent="key.post('/admin/api-keys')">
             <input v-model="key.name" class="input" placeholder="Название" />
-            <input v-model="key.allowed_ips" class="input" placeholder="IP сервера 1С через запятую" />
+            <select v-model="key.scope" class="input" @change="key.name = key.scope === 'booking' ? 'Онлайн-запись' : '1С УТ'"><option v-for="(label, k) in scopes" :key="k" :value="k">{{ label }}</option></select>
+            <input v-model="key.allowed_ips" class="input" :placeholder="key.scope === 'booking' ? 'IP сервера онлайн-записи' : 'IP сервера 1С через запятую'" />
             <button class="btn-primary">Создать ключ</button>
         </form>
     </section>

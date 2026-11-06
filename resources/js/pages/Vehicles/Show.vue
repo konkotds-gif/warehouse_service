@@ -6,12 +6,28 @@ import Modal from '../../Components/Modal.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import ClientPicker from '../../Components/ClientPicker.vue';
 import VehicleFields from '../../Components/VehicleFields.vue';
+import PhoneInput from '../../Components/PhoneInput.vue';
 import { displayPlate } from '../../lib/masks';
 import { d, dt, phone, can } from '../../lib/format';
 import { ask } from '../../lib/confirm';
 import { vehicleToForm, vehiclePayload } from '../../lib/vehicle';
 
-const props = defineProps({ vehicle: Object, client: Object, garageSets: Array, contracts: Array, owners: Array, inStorage: Boolean });
+const props = defineProps({ vehicle: Object, client: Object, garageSets: Array, contracts: Array, owners: Array, inStorage: Boolean, persons: { type: Array, default: () => [] } });
+
+// Доверенные лица (семейный аккаунт): существующий клиент или новый по телефону и имени
+const showPerson = ref(false);
+const personMode = ref('find');
+const personClient = ref(null);
+const person = useForm({ client_id: null, phone: '', full_name: '', note: '' });
+function addPerson() {
+    person.transform((x) => (personMode.value === 'find' ? { client_id: personClient.value?.id, note: x.note } : { phone: x.phone, full_name: x.full_name, note: x.note }))
+        .post(`/vehicles/${props.vehicle.id}/persons`, { preserveScroll: true, onSuccess: () => { showPerson.value = false; personClient.value = null; person.reset(); } });
+}
+async function revokePerson(p) {
+    if (await ask(`${p.client?.full_name} больше не сможет сдавать и забирать колёса этой машины и не увидит её в онлайн-записи.`, { title: 'Отозвать доверенность?', ok: 'Отозвать', danger: true })) {
+        router.delete(`/vehicles/${props.vehicle.id}/persons/${p.id}`, { preserveScroll: true });
+    }
+}
 const badge = { open: 'badge-green', overdue: 'badge-red', closed: 'badge-gray' };
 
 const showEdit = ref(false);
@@ -64,7 +80,22 @@ async function destroy() {
             </template>
             <div v-else class="text-ink-500">Не указан</div>
         </div>
-        <div class="card p-5 lg:col-span-2">
+        <div class="card p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-lg">Доверенные лица</h2>
+                <button v-if="client" class="btn-ghost !min-h-8 !text-xs" @click="showPerson = true">+ Добавить</button>
+            </div>
+            <div v-for="p in persons" :key="p.id" class="flex items-start justify-between gap-2 py-2 border-b border-line last:border-0">
+                <div>
+                    <Link v-if="p.client" :href="`/clients/${p.client.id}`" class="font-semibold text-blue-600">{{ p.client.full_name }}</Link>
+                    <div class="text-sm text-ink-500 tabular">{{ phone(p.client?.phone) }}</div>
+                    <div class="text-xs text-ink-500">добавил {{ p.source_label }} · {{ d(p.created_at) }}<template v-if="p.note"> · {{ p.note }}</template></div>
+                </div>
+                <button class="btn-ghost !min-h-8 !text-xs text-red-600" @click="revokePerson(p)">Отозвать</button>
+            </div>
+            <p v-if="!persons.length" class="text-sm text-ink-500">Нет. Доверенное лицо (например, супруга) сможет сдавать колёса этой машины на свой договор и забирать их, а в онлайн-записи увидит её хранения.</p>
+        </div>
+        <div class="card p-5">
             <h2 class="text-lg mb-3">Данные автомобиля</h2>
             <dl class="grid grid-cols-[140px_1fr] gap-y-2 text-sm">
                 <dt class="text-ink-500">Госномер</dt><dd class="tabular font-semibold">{{ vehicle.plate ? displayPlate(vehicle.plate) : 'без номеров' }}</dd>
@@ -138,6 +169,23 @@ async function destroy() {
             <button class="btn-primary" :disabled="edit.processing" @click="save">Сохранить</button>
         </div>
     </Modal>
+    <Modal :show="showPerson" title="Доверенное лицо" @close="showPerson = false">
+        <div class="grid gap-4">
+            <div class="seg">
+                <button :class="{ on: personMode === 'find' }" @click="personMode = 'find'">Найти клиента</button>
+                <button :class="{ on: personMode === 'new' }" @click="personMode = 'new'">По телефону</button>
+            </div>
+            <div v-if="personMode === 'find'"><label class="label">Клиент</label><ClientPicker v-model="personClient" :exclude-id="client?.id" /></div>
+            <template v-else>
+                <div><label class="label">Телефон</label><PhoneInput v-model="person.phone" /><div class="error" v-if="person.errors.phone">{{ person.errors.phone }}</div></div>
+                <div><label class="label">ФИО (если клиента с таким телефоном ещё нет)</label><input v-model="person.full_name" class="input" maxlength="255" /><div class="error" v-if="person.errors.full_name">{{ person.errors.full_name }}</div></div>
+            </template>
+            <div><label class="label">Примечание</label><input v-model="person.note" class="input" placeholder="Например: супруга, владелец согласен лично" maxlength="255" /></div>
+            <p class="text-xs text-ink-500">Добавляйте только с согласия владельца {{ client?.full_name }}. Владелец может сам добавлять и убирать доверенных лиц в личном кабинете онлайн-записи.</p>
+            <div class="error" v-if="person.errors.domain">{{ person.errors.domain }}</div>
+            <button class="btn-primary" :disabled="person.processing || (personMode === 'find' ? !personClient : !person.phone)" @click="addPerson">Добавить</button>
+        </div>
+    </Modal>
     <Modal :show="showOwner" title="Сменить владельца" @close="showOwner = false">
         <div class="grid gap-4">
             <p v-if="inStorage" class="text-sm text-amber-700">Колёса этого автомобиля сейчас на хранении. Сначала выдайте их прежнему владельцу.</p>
@@ -145,7 +193,7 @@ async function destroy() {
             <label class="flex gap-2 text-sm"><input type="checkbox" v-model="owner.sets_moved" class="accent-blue-600" /> Комплекты из гаража переходят вместе с автомобилем</label>
             <p v-if="!owner.sets_moved" class="text-xs text-ink-500">Комплекты будут отмечены «продан / утилизирован» и пропадут из подсказок при приёме. Если прежний владелец переставит их на другую машину, перенесите их заранее в карточке клиента.</p>
             <div><label class="label">Примечание</label><input v-model="owner.note" class="input" placeholder="Например: продал авто" maxlength="255" /></div>
-            <p class="text-xs text-ink-500">Прошлые договоры хранения останутся за прежним владельцем.</p>
+            <p class="text-xs text-ink-500">Прошлые договоры хранения останутся за прежним владельцем. Доверенные лица прежнего владельца будут отозваны.</p>
             <div class="error" v-if="owner.errors.domain">{{ owner.errors.domain }}</div>
             <button class="btn-primary" :disabled="owner.processing || !newOwner" @click="changeOwner">Сменить владельца</button>
         </div>

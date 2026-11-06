@@ -209,7 +209,8 @@ const allErrors = computed(() => Object.values(form.errors));
                 :class="vehicleId === v.id ? 'border-blue-600 ring-4 ring-blue-600/10' : 'border-line hover:border-blue-600'" @click="vehicleId = v.id">
                 <div class="flex items-center gap-3">
                     <span class="icon-tile !h-10 !w-10"><Icon name="car" /></span>
-                    <div><div class="font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ displayPlate(v.plate) }}</div></div>
+                    <div><div class="font-bold">{{ v.make }} {{ v.model }}</div><div class="tabular text-ink-500">{{ displayPlate(v.plate) }}</div>
+                        <div v-if="v.access === 'trusted'" class="text-xs text-ink-500 mt-0.5"><span class="badge badge-blue">доверенное лицо</span> владелец {{ v.owner?.full_name }}</div></div>
                 </div>
                 <div class="mt-3 grid gap-2">
                     <button v-for="g in v.garage_sets" :key="g.id" type="button" :disabled="!!g.active_set"
