@@ -111,6 +111,7 @@ class BookingApiTest extends TestCase
         $res->assertJsonPath('vehicles.0.role', 'trusted')
             ->assertJsonPath('vehicles.0.owner_name', 'Иван И.')
             ->assertJsonPath('vehicles.0.persons', [])
+            ->assertJsonPath('vehicles.0.my_person_id', VehiclePerson::first()->id)
             ->assertJsonPath('vehicles.0.stored_sets.0.set_id', $set->id);
         $this->assertStringNotContainsString('+79123456789', $res->getContent());
 

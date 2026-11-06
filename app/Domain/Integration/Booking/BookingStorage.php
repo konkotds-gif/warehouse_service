@@ -88,6 +88,8 @@ class BookingStorage
                 'id' => $p['id'], 'full_name' => $p['client']['full_name'] ?? null, 'phone' => $p['client']['phone'] ?? null,
                 'source' => $p['source'], 'created_at' => $p['created_at'],
             ])->all() : [],
+            // Доверенному — его собственная запись, чтобы он мог отказаться от доступа
+            'my_person_id' => $owner ? null : $v->persons()->whereIn('client_id', $clientIds)->value('id'),
             'garage_sets' => $v->garageSets->filter(fn (GarageSet $g) => $g->state !== GarageSetState::Retired)
                 ->map(fn (GarageSet $g) => [
                     'id' => $g->id,
