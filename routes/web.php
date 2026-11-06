@@ -56,6 +56,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/vehicles/{vehicle}', [VehicleController::class, 'show'])->name('vehicles.show');
         Route::put('/vehicles/{vehicle}', [VehicleController::class, 'update'])->name('vehicles.update');
         Route::post('/vehicles/{vehicle}/owner', [VehicleController::class, 'changeOwner'])->name('vehicles.owner');
+        Route::post('/vehicles/{vehicle}/persons', [VehicleController::class, 'addPerson'])->name('vehicles.persons.store');
+        Route::delete('/vehicles/{vehicle}/persons/{person}', [VehicleController::class, 'revokePerson'])->name('vehicles.persons.destroy');
         Route::delete('/vehicles/{vehicle}', [VehicleController::class, 'destroy'])->middleware('can:fix')->name('vehicles.destroy');
 
         Route::put('/garage-sets/{garageSet}', [ClientController::class, 'updateGarageSet'])->name('garage.update');

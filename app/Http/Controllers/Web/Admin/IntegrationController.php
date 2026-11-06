@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
-/** Мониторинг обмена с 1С и ключи API. */
+/** Мониторинг обмена с 1С и ключи API (1С и онлайн-запись). */
 class IntegrationController extends Controller
 {
     public function index(Request $request): Response
@@ -26,7 +26,8 @@ class IntegrationController extends Controller
                 'onec_doc_guid' => $e->onec_doc_guid, 'number' => $e->payload['contract_number'] ?? $e->payload['transfer_number'] ?? $e->payload['full_name'] ?? null,
                 'payload' => $e->payload,
             ]),
-            'keys' => ApiKey::orderBy('id')->get(['id', 'name', 'allowed_ips', 'is_active', 'last_used_at', 'created_at']),
+            'keys' => ApiKey::orderBy('id')->get(['id', 'name', 'allowed_ips', 'scopes', 'is_active', 'last_used_at', 'created_at']),
+            'scopes' => ApiKey::SCOPES,
             'stats' => [
                 'pending' => OutboxEvent::whereNull('delivered_at')->count(),
                 'stale' => OutboxEvent::whereNull('delivered_at')->where('created_at', '<', now()->subMinutes((int) config('storage.onec.ack_alert_minutes', 30)))->count(),
@@ -38,8 +39,12 @@ class IntegrationController extends Controller
 
     public function storeKey(Request $request): RedirectResponse
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'allowed_ips' => ['nullable', 'string', 'max:255']]);
-        [, $plain] = ApiKey::generate($data['name'], $data['allowed_ips'] ?? null);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'allowed_ips' => ['nullable', 'string', 'max:255'],
+            'scope' => ['nullable', 'in:'.implode(',', array_keys(ApiKey::SCOPES))],
+        ]);
+        [, $plain] = ApiKey::generate($data['name'], $data['allowed_ips'] ?? null, $data['scope'] ?? 'onec');
 
         return back()->with('success', 'Ключ создан. Скопируйте его — повторно он не показывается.')->with('secret', $plain);
     }

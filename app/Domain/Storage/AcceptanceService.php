@@ -205,8 +205,9 @@ final class AcceptanceService
     {
         if (! empty($data['vehicle_id'])) {
             $vehicle = Vehicle::findOrFail($data['vehicle_id']);
-            if ($vehicle->client_id !== $client->id) {
-                throw DomainError::invalid('Автомобиль принадлежит другому клиенту', 'vehicle_id');
+            // Договор — на того, кто сдаёт: владелец машины или его доверенное лицо (семейный аккаунт)
+            if (! $client->canUseVehicle($vehicle)) {
+                throw DomainError::invalid('Автомобиль принадлежит другому клиенту, и клиент не в списке доверенных лиц', 'vehicle_id');
             }
 
             return $vehicle;

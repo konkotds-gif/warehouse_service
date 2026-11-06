@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Family\VehiclePersons;
 use App\Domain\Integration\OneC\Outbox;
 use App\Domain\Storage\AcceptanceService;
 use App\Domain\Storage\GarageSetState;
@@ -141,6 +142,7 @@ class ClientController extends Controller
         }
         DB::transaction(function () use ($client, $other) {
             $other->vehicles()->update(['client_id' => $client->id]);
+            app(VehiclePersons::class)->mergeClients($client, $other);
             $other->contracts()->update(['client_id' => $client->id]);
             $client->update([
                 'phone' => $client->phone ?: $other->phone,

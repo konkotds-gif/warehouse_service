@@ -132,13 +132,20 @@ final class Present
         ];
     }
 
-    /** Гараж: машины клиента с закреплёнными комплектами. */
+    /**
+     * Гараж: машины клиента с закреплёнными комплектами, затем машины, где он доверенное лицо
+     * (access = trusted, owner — владелец машины).
+     */
     public static function garage(Client $client): array
     {
-        $vehicles = $client->vehicles()->with(['garageSets' => fn ($q) => $q->orderBy('created_at'),
-            'garageSets.wheelSets.cell', 'garageSets.wheelSets.location', 'garageSets.wheelSets.transfer'])->get();
+        $with = ['client', 'garageSets' => fn ($q) => $q->orderBy('created_at'),
+            'garageSets.wheelSets.cell', 'garageSets.wheelSets.location', 'garageSets.wheelSets.transfer'];
+        $vehicles = $client->accessibleVehiclesQuery()->with($with)
+            ->orderByRaw('client_id = ? desc', [$client->id])->orderBy('created_at')->get();
 
         return $vehicles->map(fn (Vehicle $v) => self::vehicle($v) + [
+            'access' => $v->client_id === $client->id ? 'owner' : 'trusted',
+            'owner' => $v->client_id !== $client->id && $v->client ? ['id' => $v->client->id, 'full_name' => $v->client->full_name] : null,
             'garage_sets' => $v->garageSets->map(fn ($g) => self::garageSet($g))->all(),
         ])->all();
     }

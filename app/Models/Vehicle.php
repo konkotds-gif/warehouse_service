@@ -79,6 +79,12 @@ class Vehicle extends Model
             ->exists();
     }
 
+    /** Доверенные лица при машине (действующие). */
+    public function persons(): HasMany
+    {
+        return $this->hasMany(VehiclePerson::class)->whereNull('revoked_at')->orderBy('created_at');
+    }
+
     public function garageSets(): HasMany
     {
         return $this->hasMany(GarageSet::class);
