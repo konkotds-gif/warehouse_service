@@ -88,7 +88,7 @@ class BookingStorage
                     ->where('status', '!=', ContractStatus::Closed->value)))
             ->orderByRaw('status = ? asc', [ContractStatus::Closed->value])->orderByDesc('accepted_at')->get();
         $setIds = $contracts->flatMap(fn (StorageContract $c) => $c->sets->pluck('id'));
-        $orders = BookingOrder::where('status', 'active')->whereIn('wheel_set_id', $setIds)->get()->keyBy('wheel_set_id');
+        $orders = BookingOrder::activeBySet($setIds);
 
         return $contracts->map(function (StorageContract $c) use ($orders, $store, $clientIds) {
             $own = in_array($c->client_id, $clientIds, true);
@@ -130,7 +130,7 @@ class BookingStorage
         $sets = WheelSet::with(['contract', 'location', 'garageSet'])
             ->whereIn('contract_id', $contracts)->whereIn('status', SetStatus::activeValues())
             ->orderBy('qr_code')->get();
-        $orders = BookingOrder::where('status', 'active')->whereIn('wheel_set_id', $sets->pluck('id'))->get()->keyBy('wheel_set_id');
+        $orders = BookingOrder::activeBySet($sets->pluck('id'));
 
         return [
             'id' => $v->id,

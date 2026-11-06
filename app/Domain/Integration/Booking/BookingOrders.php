@@ -49,16 +49,21 @@ class BookingOrders
         }
 
         return DB::transaction(function () use ($code, $set, $store, $at, $phone, $existing) {
-            $busy = BookingOrder::where('wheel_set_id', $set->id)->where('status', 'active')->where('booking_code', '!=', $code)->first();
-            if ($busy) {
-                throw new DomainError('Этот комплект уже заказан под другую запись ('.$busy->booking_code.')');
+            $taken = BookingOrder::activeBySet([$set->id])->first(fn (BookingOrder $o) => $o->booking_code !== $code);
+            if ($taken) {
+                throw new DomainError('Этот комплект уже заказан под другую запись ('.$taken->booking_code.')');
             }
-            $set->refresh();
-            $alreadyHere = in_array($set->status, [SetStatus::Ordered, SetStatus::Ready], true) && $set->issue_store_id === $store->id;
-            if (! $alreadyHere) {
-                $this->issue->order($set, $store, $at->toDateString());
+            // Вторая ось: остальные комплекты договора того же сезона едут вместе с выбранным
+            $extra = $this->companions($set, $code);
+            foreach ([$set, ...$extra] as $s) {
+                $s->refresh();
+                $alreadyHere = in_array($s->status, [SetStatus::Ordered, SetStatus::Ready], true) && $s->issue_store_id === $store->id;
+                if (! $alreadyHere) {
+                    $this->issue->order($s, $store, $at->toDateString());
+                }
             }
-            $data = ['wheel_set_id' => $set->id, 'store_id' => $store->id, 'starts_at' => $at->utc(), 'phone' => $phone, 'status' => 'active'];
+            $data = ['wheel_set_id' => $set->id, 'extra_set_ids' => $extra ? array_map(fn (WheelSet $s) => $s->id, $extra) : null,
+                'store_id' => $store->id, 'starts_at' => $at->utc(), 'phone' => $phone, 'status' => 'active'];
             if ($existing) {
                 $existing->update($data);
 
@@ -77,14 +82,15 @@ class BookingOrders
         $store = $storeCode ? $this->store($storeCode) : $order->store;
 
         return DB::transaction(function () use ($order, $at, $store) {
-            $set = $order->wheelSet()->lockForUpdate()->first();
-            if ($store->id !== $order->store_id) {
-                if (in_array($set->status, [SetStatus::Ordered, SetStatus::Ready], true)) {
-                    $this->issue->cancelOrder($set);
+            foreach (WheelSet::whereIn('id', $order->setIds())->lockForUpdate()->get() as $set) {
+                if ($store->id !== $order->store_id) {
+                    if (in_array($set->status, [SetStatus::Ordered, SetStatus::Ready], true)) {
+                        $this->issue->cancelOrder($set);
+                    }
+                    $this->issue->order($set->fresh(), $store, $at->toDateString());
+                } elseif ($set->status === SetStatus::Ordered) {
+                    $set->update(['issue_due_date' => $at->toDateString()]);
                 }
-                $this->issue->order($set->fresh(), $store, $at->toDateString());
-            } elseif ($set->status === SetStatus::Ordered) {
-                $set->update(['issue_due_date' => $at->toDateString()]);
             }
             $order->update(['store_id' => $store->id, 'starts_at' => $at->utc()]);
 
@@ -100,10 +106,11 @@ class BookingOrders
             return $order;
         }
         DB::transaction(function () use ($order) {
-            $set = $order->wheelSet;
-            if ($set && $set->status === SetStatus::Ordered
-                || ($set && $set->status === SetStatus::Ready && IssueService::buildingIssueTransfer($set))) {
-                $this->issue->cancelOrder($set);
+            foreach (WheelSet::whereIn('id', $order->setIds())->get() as $set) {
+                if ($set->status === SetStatus::Ordered
+                    || ($set->status === SetStatus::Ready && IssueService::buildingIssueTransfer($set))) {
+                    $this->issue->cancelOrder($set);
+                }
             }
             $order->update(['status' => 'cancelled']);
         });
@@ -123,6 +130,7 @@ class BookingOrders
             'booking_code' => $order->booking_code,
             'status' => $order->status,
             'set_id' => $order->wheel_set_id,
+            'set_ids' => $order->setIds(),
             'qr_code' => $set?->qr_code,
             'contract_number' => $set?->contract?->number,
             'store_code' => $order->store?->code,
@@ -130,6 +138,34 @@ class BookingOrders
             'set_state' => $set ? BookingStorage::state($set->status) : null,
             'set_state_label' => $set ? BookingStorage::stateLabel($set->status) : null,
         ];
+    }
+
+    /**
+     * Комплекты, которые едут вместе с выбранным: тот же договор и сезон, лежат на хранении и не заказаны под другую запись.
+     * Так разноширокие оси (два комплекта по 2 колеса) приезжают в магазин обе.
+     *
+     * @return list<WheelSet>
+     */
+    private function companions(WheelSet $set, string $code): array
+    {
+        if ($set->season === null) {
+            return [];
+        }
+        $candidates = WheelSet::where('contract_id', $set->contract_id)->whereKeyNot($set->id)
+            ->where('season', $set->season->value)
+            ->whereIn('status', [SetStatus::Placed->value, SetStatus::Received->value, SetStatus::Accepted->value, SetStatus::Ordered->value, SetStatus::Ready->value])
+            ->get();
+        $taken = BookingOrder::activeBySet($candidates->pluck('id'));
+
+        return $candidates->filter(function (WheelSet $s) use ($taken, $code) {
+            $o = $taken->get($s->id);
+            if ($o) {
+                return $o->booking_code === $code; // уже в этом заказе
+            }
+
+            // Заказанные вручную (не под запись) не трогаем
+            return in_array($s->status, [SetStatus::Placed, SetStatus::Received, SetStatus::Accepted], true);
+        })->values()->all();
     }
 
     private function active(string $code): BookingOrder
