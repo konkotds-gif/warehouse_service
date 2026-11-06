@@ -30,12 +30,14 @@ class VehiclePersons
 
     /**
      * Добавить доверенное лицо: существующего клиента ($person) или нового по телефону и имени.
+     * $allVehicles — доверие ко всем машинам владельца, включая те, что появятся позже.
      *
      * @param  array{phone?: string|null, full_name?: string|null}  $new
      */
-    public function add(Vehicle $vehicle, ?Client $person, array $new = [], string $source = 'staff', ?User $by = null, ?string $note = null): VehiclePerson
+    public function add(Vehicle $vehicle, ?Client $person, array $new = [], string $source = 'staff', ?User $by = null,
+        ?string $note = null, bool $allVehicles = false): VehiclePerson
     {
-        return DB::transaction(function () use ($vehicle, $person, $new, $source, $by, $note) {
+        return DB::transaction(function () use ($vehicle, $person, $new, $source, $by, $note, $allVehicles) {
             if (! $person) {
                 $phone = Normalizer::phone($new['phone'] ?? null);
                 if (! $phone || strlen($phone) !== 12) {
@@ -54,14 +56,27 @@ class VehiclePersons
             if ($person->id === $vehicle->client_id) {
                 throw DomainError::invalid('Это владелец машины — он и так имеет к ней доступ', 'phone');
             }
-            $existing = VehiclePerson::active()->where('vehicle_id', $vehicle->id)->where('client_id', $person->id)->first();
-            if ($existing) {
-                return $existing;
+            $owner = $vehicle->client_id;
+            $all = VehiclePerson::active()->where('client_id', $person->id)->where('owner_id', $owner)->where('all_vehicles', true)->first();
+            if ($all) {
+                return $all; // уже доверено всё
             }
+            if (! $allVehicles) {
+                $existing = VehiclePerson::active()->where('vehicle_id', $vehicle->id)->where('client_id', $person->id)->first();
+
+                return $existing ?? VehiclePerson::create([
+                    'vehicle_id' => $vehicle->id, 'client_id' => $person->id, 'owner_id' => $owner, 'all_vehicles' => false, 'source' => $source,
+                    'added_by' => $by?->id, 'note' => $note,
+                ]);
+            }
+            // Доверие ко всем машинам заменяет доверенности при отдельных машинах этого владельца
+            VehiclePerson::active()->where('client_id', $person->id)->where('all_vehicles', false)
+                ->whereIn('vehicle_id', Vehicle::withTrashed()->where('client_id', $owner)->select('id'))
+                ->update(['revoked_at' => now(), 'revoked_reason' => 'all_vehicles']);
 
             return VehiclePerson::create([
-                'vehicle_id' => $vehicle->id, 'client_id' => $person->id, 'source' => $source,
-                'added_by' => $by?->id, 'note' => $note,
+                'vehicle_id' => $vehicle->id, 'client_id' => $person->id, 'owner_id' => $owner, 'all_vehicles' => true,
+                'source' => $source, 'added_by' => $by?->id, 'note' => $note,
             ]);
         });
     }
@@ -73,25 +88,32 @@ class VehiclePersons
         }
     }
 
-    /** Смена владельца: прежние доверенности теряют силу (новый владелец решает сам). */
+    /**
+     * Смена владельца: доверенности при этой машине теряют силу (новый владелец решает сам).
+     * Доверие «ко всем машинам» прежнего владельца остаётся — на эту машину оно больше не действует.
+     */
     public function revokeAll(Vehicle $vehicle, string $reason = 'owner_changed'): int
     {
-        return VehiclePerson::active()->where('vehicle_id', $vehicle->id)
+        return VehiclePerson::active()->where('vehicle_id', $vehicle->id)->where('all_vehicles', false)
             ->update(['revoked_at' => now(), 'revoked_reason' => $reason]);
     }
 
-    /** Объединение клиентов: доверенности дубля переходят к основной карточке. */
+    /** Объединение клиентов: доверенности дубля (и данные им как владельцем) переходят к основной карточке. */
     public function mergeClients(Client $into, Client $from): void
     {
+        VehiclePerson::active()->where('owner_id', $from->id)->update(['owner_id' => $into->id]);
         foreach (VehiclePerson::active()->where('client_id', $from->id)->get() as $p) {
             $vehicle = Vehicle::find($p->vehicle_id);
-            $dup = VehiclePerson::active()->where('vehicle_id', $p->vehicle_id)->where('client_id', $into->id)->exists();
-            if ($dup || ($vehicle && $vehicle->client_id === $into->id)) {
+            $dup = VehiclePerson::active()->where('client_id', $into->id)->where('all_vehicles', $p->all_vehicles)
+                ->where($p->all_vehicles ? 'owner_id' : 'vehicle_id', $p->all_vehicles ? $p->owner_id : $p->vehicle_id)->exists();
+            if ($dup || $p->owner_id === $into->id || ($vehicle && $vehicle->client_id === $into->id && ! $p->all_vehicles)) {
                 $p->revoke('merged');
             } else {
                 $p->update(['client_id' => $into->id]);
             }
         }
+        VehiclePerson::active()->where('client_id', $into->id)->where('owner_id', $into->id)
+            ->update(['revoked_at' => now(), 'revoked_reason' => 'merged']);
         // Своя машина основной карточки: доверенность на неё самого себя не нужна
         VehiclePerson::active()->where('client_id', $into->id)
             ->whereIn('vehicle_id', Vehicle::where('client_id', $into->id)->select('id'))
@@ -105,6 +127,7 @@ class VehiclePersons
             'id' => $p->id,
             'client' => $p->client ? ['id' => $p->client->id, 'full_name' => $p->client->full_name, 'phone' => $p->client->phone] : null,
             'source' => $p->source,
+            'all_vehicles' => $p->all_vehicles,
             'source_label' => $p->source === 'booking' ? 'владелец в онлайн-записи' : ($p->addedBy?->name ?? 'сотрудник'),
             'note' => $p->note,
             'created_at' => $p->created_at?->toIso8601String(),

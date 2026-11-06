@@ -262,6 +262,61 @@ class BookingApiTest extends TestCase
         $this->assertSame('staff', $p->fresh()->revoked_reason);
     }
 
+    public function test_person_for_all_vehicles_added_on_accept_sees_new_cars(): void
+    {
+        // Жена добавлена прямо при приёме, с галочкой «все автомобили»
+        $contract = $this->accept($this->store(), ['persons' => [['phone' => '89220001122', 'full_name' => 'Иванова Мария', 'all_vehicles' => true]]]);
+        $wife = VehiclePersons::clientByPhone('89220001122');
+        $this->assertNotNull($wife);
+        $p = VehiclePerson::active()->where('client_id', $wife->id)->first();
+        $this->assertTrue($p->all_vehicles);
+        $this->assertSame($contract->client_id, $p->owner_id);
+
+        // Новая машина владельца появилась позже — жена видит и её
+        $owner = $contract->client;
+        $v2 = $owner->vehicles()->create(['plate' => 'Е001ЕЕ86', 'make' => 'Kia', 'model' => 'Ceed']);
+        $this->assertTrue($wife->canUseVehicle($v2));
+        $this->getJson('/api/v1/booking/lookup?phone=89220001122', $this->h())->assertOk()->assertJsonCount(2, 'vehicles');
+        $this->getJson('/api/v1/booking/lookup?phone=89123456789', $this->h())
+            ->assertJsonPath('vehicles.1.persons.0.all_vehicles', true);
+
+        // Смена владельца второй машины: доверие ко всем машинам прежнего владельца на неё больше не действует
+        $buyer = Client::create(['full_name' => 'Покупатель', 'phone' => '89000000001']);
+        $this->actingAs($this->user());
+        $this->post("/vehicles/{$v2->id}/owner", ['client_id' => $buyer->id, 'sets_moved' => true])->assertRedirect();
+        $this->assertFalse($wife->canUseVehicle($v2->fresh()));
+        $this->assertTrue($wife->canUseVehicle($contract->vehicle));
+
+        // Отзыв из карточки любой машины владельца снимает доступ ко всем
+        $this->delete("/vehicles/{$contract->vehicle_id}/persons/{$p->id}")->assertRedirect();
+        $this->assertFalse($wife->fresh()->canUseVehicle($contract->vehicle));
+    }
+
+    public function test_all_vehicles_replaces_per_car_trust_and_booking_owner_can_set_it(): void
+    {
+        $store = $this->store();
+        $this->accept($store);
+        $vehicle = Vehicle::first();
+        $persons = app(VehiclePersons::class);
+        $one = $persons->add($vehicle, null, ['phone' => '89220001122', 'full_name' => 'Иванова Мария']);
+        $this->assertFalse($one->all_vehicles);
+
+        // Владелец в онлайн-записи ставит галочку «все автомобили» — доверенность при машине заменяется
+        $this->postJson("/api/v1/booking/vehicles/{$vehicle->id}/persons",
+            ['phone' => '89123456789', 'person_phone' => '89220001122', 'all_vehicles' => true], $this->h())
+            ->assertCreated()->assertJsonPath('all_vehicles', true);
+        $this->assertSame('all_vehicles', $one->fresh()->revoked_reason);
+        $this->assertSame(1, VehiclePerson::active()->count());
+        // Повторное добавление без галочки не дублирует
+        $persons->add($vehicle, $one->client);
+        $this->assertSame(1, VehiclePerson::active()->count());
+
+        // Доверенное лицо не может добавлять доверенных при приёме на машину владельца
+        $this->expectException(DomainError::class);
+        $this->accept($store, ['client' => null, 'client_id' => $one->client_id, 'vehicle' => null, 'vehicle_id' => $vehicle->id,
+            'persons' => [['phone' => '89220003344', 'full_name' => 'Кто-то']]]);
+    }
+
     public function test_order_takes_both_axles_of_staggered_set(): void
     {
         $store = $this->store();

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Domain\Storage\SetStatus;
 use App\Domain\Support\Normalizer;
 use App\Models\Concerns\Audited;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -79,10 +80,10 @@ class Vehicle extends Model
             ->exists();
     }
 
-    /** Доверенные лица при машине (действующие). */
-    public function persons(): HasMany
+    /** Доверенные лица машины (действующие): при ней самой и «ко всем машинам» владельца. */
+    public function persons(): Builder
     {
-        return $this->hasMany(VehiclePerson::class)->whereNull('revoked_at')->orderBy('created_at');
+        return VehiclePerson::active()->forVehicle($this)->orderBy('created_at');
     }
 
     public function garageSets(): HasMany

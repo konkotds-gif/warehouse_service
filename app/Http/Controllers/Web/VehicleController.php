@@ -168,16 +168,17 @@ class VehicleController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'full_name' => ['nullable', 'string', 'max:255'],
             'note' => ['nullable', 'string', 'max:255'],
+            'all_vehicles' => ['nullable', 'boolean'],
         ]);
         $person = ! empty($data['client_id']) ? Client::findOrFail($data['client_id']) : null;
-        $p = $persons->add($vehicle, $person, $data, 'staff', $request->user(), $data['note'] ?? null);
+        $p = $persons->add($vehicle, $person, $data, 'staff', $request->user(), $data['note'] ?? null, (bool) ($data['all_vehicles'] ?? false));
 
-        return back()->with('success', 'Доверенное лицо добавлено: '.$p->client->full_name);
+        return back()->with('success', 'Доверенное лицо добавлено: '.$p->client->full_name.($p->all_vehicles ? ' (все автомобили владельца)' : ''));
     }
 
     public function revokePerson(Vehicle $vehicle, VehiclePerson $person, VehiclePersons $persons): RedirectResponse
     {
-        abort_if($person->vehicle_id !== $vehicle->id, 404);
+        abort_unless(VehiclePerson::forVehicle($vehicle)->whereKey($person->id)->exists(), 404);
         $persons->revoke($person, 'staff');
 
         return back()->with('success', 'Доверенность отозвана');

@@ -66,6 +66,11 @@ class AcceptController extends Controller
             'sets.*.tire_size' => ['required', 'string', 'max:40'],
             'sets.*.with_rims' => ['required', 'boolean'],
             'sets.*.condition' => ['required', 'in:used,new'],
+            'persons' => ['nullable', 'array', 'max:5'],
+            'persons.*.client_id' => ['nullable', 'uuid'],
+            'persons.*.phone' => ['nullable', 'string', 'max:32'],
+            'persons.*.full_name' => ['nullable', 'string', 'max:255'],
+            'persons.*.all_vehicles' => ['nullable', 'boolean'],
         ], [
             'client.full_name.required_without' => 'Укажите ФИО клиента',
             'sets.*.tire_size.required' => 'Укажите размер шин: ширина, профиль, диаметр',
