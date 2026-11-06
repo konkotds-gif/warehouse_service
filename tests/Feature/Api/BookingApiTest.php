@@ -75,13 +75,19 @@ class BookingApiTest extends TestCase
             ->assertJsonPath('vehicles.0.stored_sets.0.orderable', true)
             ->assertJsonPath('vehicles.0.garage_sets.0.in_storage', true);
         $this->assertStringNotContainsString('02_01_01', $res->getContent());
+        // Раздел «Хранение колёс»: договоры клиента с комплектами
+        $res->assertJsonPath('contracts.0.number', $set->contract->number)
+            ->assertJsonPath('contracts.0.status', 'open')
+            ->assertJsonPath('contracts.0.vehicle.plate', 'А123ВС86')
+            ->assertJsonPath('contracts.0.sets.0.set_id', $set->id)
+            ->assertJsonPath('contracts.0.wheels', $set->qty);
         // Подвоз — на следующий день к 12:00
         $ready = Carbon::parse($res->json('vehicles.0.stored_sets.0.ready_from'))->timezone(config('app.display_timezone'));
         $this->assertSame(now(config('app.display_timezone'))->addDay()->toDateString().' 12:00', $ready->format('Y-m-d H:i'));
 
         // Хвост телефона не находит клиента (в отличие от поиска для 1С)
         $this->getJson('/api/v1/booking/lookup?phone=4567890', $this->h())->assertStatus(422);
-        $this->getJson('/api/v1/booking/lookup?phone=89120000000', $this->h())->assertOk()->assertJsonCount(0, 'vehicles');
+        $this->getJson('/api/v1/booking/lookup?phone=89120000000', $this->h())->assertOk()->assertJsonCount(0, 'vehicles')->assertJsonCount(0, 'contracts');
         $this->assertSame(2, DB::table('api_access_log')->where('action', 'lookup')->count());
     }
 
