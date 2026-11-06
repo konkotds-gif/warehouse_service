@@ -3,6 +3,7 @@
 namespace App\Domain\Integration\Booking;
 
 use App\Domain\Family\VehiclePersons;
+use App\Domain\Storage\ContractStatus;
 use App\Domain\Storage\GarageSetState;
 use App\Domain\Storage\IssueService;
 use App\Domain\Storage\SetStatus;
@@ -61,7 +62,55 @@ class BookingStorage
             'client' => $main ? ['id' => $main->id, 'full_name' => $main->full_name, 'consent_sms' => $main->consent_sms] : null,
             'vehicles' => $vehicles->map(fn (Vehicle $v) => $this->vehicle($v, $ids, $store))->values()->all(),
             'foreign_plate' => $foreign,
+            'contracts' => $this->contracts($ids, $store),
         ];
+    }
+
+    /**
+     * Договоры хранения клиента для раздела «Хранение колёс» в кабинете записи: действующие — все,
+     * закрытые — за последний год. Договоры без машины здесь тоже есть (в «Гараже» их не видно).
+     *
+     * @param  list<string>  $clientIds
+     * @return list<array<string, mixed>>
+     */
+    public function contracts(array $clientIds, ?Location $store = null): array
+    {
+        if ($clientIds === []) {
+            return [];
+        }
+        $contracts = StorageContract::with(['vehicle', 'store', 'extensions', 'sets.contract', 'sets.location', 'sets.garageSet'])
+            ->whereIn('client_id', $clientIds)
+            ->where(fn ($q) => $q->where('status', '!=', ContractStatus::Closed->value)->orWhere('closed_at', '>=', now()->subYear()))
+            ->orderByRaw('status = ? asc', [ContractStatus::Closed->value])->orderByDesc('accepted_at')->get();
+        $setIds = $contracts->flatMap(fn (StorageContract $c) => $c->sets->pluck('id'));
+        $orders = BookingOrder::where('status', 'active')->whereIn('wheel_set_id', $setIds)->get()->keyBy('wheel_set_id');
+
+        return $contracts->map(function (StorageContract $c) use ($orders, $store) {
+            $closed = $c->status === ContractStatus::Closed;
+            $check = $closed ? ['debt' => 0, 'warnings' => [], 'overdue' => []] : $this->issue->debtCheck($c);
+            $active = $c->sets->filter(fn (WheelSet $s) => $s->status->isActive());
+
+            return [
+                'number' => $c->number,
+                'status' => $c->status->value,
+                'status_label' => $c->status->label(),
+                'store' => $c->store?->name,
+                'accepted_at' => $c->accepted_at?->toIso8601String(),
+                'storage_until' => $c->storage_until?->toDateString(),
+                'paid_until' => $c->paid_until?->toDateString(),
+                'closed_at' => $c->closed_at?->toIso8601String(),
+                'amount' => (float) $c->amount,
+                'debt' => round((float) $check['debt'] + (float) ($check['overdue']['due'] ?? 0), 2),
+                'warnings' => array_values(array_filter($check['warnings'], fn ($w) => ! str_contains($w, '1С'))),
+                'vehicle' => $c->vehicle ? ['id' => $c->vehicle->id, 'plate' => $c->vehicle->plate, 'make' => $c->vehicle->make, 'model' => $c->vehicle->model] : null,
+                'wheels' => (int) $c->sets->sum('qty'),
+                'sets' => $closed ? [] : $active->map(fn (WheelSet $s) => $this->set($s, $orders->get($s->id), $store))->values()->all(),
+                'extensions' => $c->extensions->sortBy('seq')->map(fn ($e) => [
+                    'number' => $e->number, 'months' => $e->months, 'storage_until' => $e->storage_until?->toDateString(),
+                    'extended_at' => $e->extended_at?->toIso8601String(),
+                ])->values()->all(),
+            ];
+        })->values()->all();
     }
 
     /** @param list<string> $clientIds */

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Setting;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 // Ночью: пометка просроченных хранений
@@ -23,3 +24,7 @@ Schedule::call(fn () => Setting::put('scheduler.last_run_at', now()->toIso8601St
 Schedule::command('sms:check-status')->everyMinute()->withoutOverlapping();
 
 Schedule::command('ldap:sync')->hourly()->withoutOverlapping();
+
+// Журнал обращений к API (поиск по телефону/госномеру — персональные данные): храним 180 дней
+Schedule::call(fn () => DB::table('api_access_log')->where('created_at', '<', now()->subDays(180))->delete())
+    ->daily()->name('api-access-log-prune');
